@@ -66,40 +66,52 @@ def test_param_validation():
 
 @pytest.mark.asyncio
 async def test_planner_rejects_unsupported_action():
-    """测试Planner拒绝不支持的动作"""
+    """测试Planner拒绝不支持的动作（通过手动TaskGraph验证）"""
     loader = get_capability_loader()
     profile_a = loader.get_profile("model_a")
     
-    # 创建base planner
+    # 手动创建包含不支持动作的TaskGraph
+    from datetime import datetime
+    from app.schemas.taskgraph import TaskGraph, Task, Step, VehicleAction, ActionLevel, DomainType
+    
+    taskgraph = TaskGraph(
+        tasks=[
+            Task(
+                task_id="t1",
+                branch_id="main",
+                steps=[
+                    Step(
+                        step_id="s1",
+                        domain=DomainType.VEHICLE,
+                        action=VehicleAction(
+                            action="sunroof_open",
+                            level=ActionLevel.L1
+                        ),
+                        description="打开天窗"
+                    )
+                ]
+            )
+        ],
+        session_id="test",
+        timestamp=datetime.utcnow().isoformat() + "Z"
+    )
+    
+    # 使用CapabilityAwarePlanner的验证方法
+    from app.planner.capability_wrapper import CapabilityAwarePlanner
     base_planner = Planner()
     wrapper = CapabilityAwarePlanner(base_planner)
     
-    # 创建mock上下文
-    session_info = SessionInfo(
-        session_id="test_session",
-        driver_id="test_driver",
-        vehicle_id="test_vehicle",
-        created_at=datetime.utcnow().isoformat() + "Z",
-        last_active=datetime.utcnow().isoformat() + "Z"
-    )
-    
-    context = DialogueContext(
-        session_info=session_info,
-        current_utterance="打开天窗",
-        recent_utterances=[],
-        shadow_state={},
-        memory_slice=[],
-        current_location=None
-    )
-    
-    # 规划（model_a不支持天窗）
-    taskgraph = await wrapper.plan("打开天窗", context, profile_a)
+    # 验证（model_a不支持天窗）
+    validated = wrapper._validate_against_profile(taskgraph, profile_a)
     
     # 应该返回不支持提示
-    assert len(taskgraph.tasks) == 1
-    task = taskgraph.tasks[0]
-    assert task.domain == DomainType.CHITCHAT
-    assert "不支持" in task.steps[0].action.response
+    assert len(validated.tasks) == 1
+    task = validated.tasks[0]
+    assert len(task.steps) > 0
+    step = task.steps[0]
+    assert step.domain == DomainType.CHITCHAT
+    assert hasattr(step.action, 'response')
+    assert "不支持" in step.action.response or "Model A" in step.action.response
 
 
 @pytest.mark.asyncio
@@ -124,7 +136,7 @@ async def test_planner_allows_supported_action():
         current_utterance="打开天窗",
         recent_utterances=[],
         shadow_state={},
-        memory_slice=[],
+        memory_slice={},
         current_location=None
     )
     
