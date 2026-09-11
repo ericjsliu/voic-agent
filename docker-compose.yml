@@ -50,9 +50,10 @@ services:
       - MQTT_PORT=1883
       - REDIS_URL=redis://redis:6379/0
       - HYBRID_RAG_BASE_URL=http://mock_rag:8001
-      - LLM_BASE_URL=${LLM_BASE_URL:-}
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
+      # LLM配置 (Alibaba DashScope OpenAI-compatible)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - LLM_DEFAULT_MODEL=${LLM_DEFAULT_MODEL:-qwen-turbo}
     depends_on:
       - mosquitto
       - redis

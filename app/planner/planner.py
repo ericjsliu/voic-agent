@@ -25,12 +25,26 @@ class Planner:
         self,
         llm_base_url: Optional[str] = None,
         llm_api_key: Optional[str] = None,
-        llm_model: str = "gpt-3.5-turbo",
+        llm_model: Optional[str] = None,
         nav_adapter: Optional[NavigationAdapter] = None
     ):
-        self.llm_base_url = llm_base_url or os.getenv("LLM_BASE_URL")
-        self.llm_api_key = llm_api_key or os.getenv("LLM_API_KEY")
-        self.llm_model = llm_model or os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+        # 优先使用 OPENAI_* 环境变量，fallback到 LLM_* 别名
+        self.llm_api_key = (
+            llm_api_key or 
+            os.getenv("OPENAI_API_KEY") or 
+            os.getenv("LLM_API_KEY")
+        )
+        self.llm_base_url = (
+            llm_base_url or 
+            os.getenv("OPENAI_API_BASE") or 
+            os.getenv("LLM_BASE_URL")
+        )
+        self.llm_model = (
+            llm_model or 
+            os.getenv("LLM_DEFAULT_MODEL") or 
+            os.getenv("LLM_MODEL") or 
+            "qwen-turbo"
+        )
         self.nav_adapter = nav_adapter or NavigationAdapter()
         
         self.llm_client = None
@@ -39,6 +53,7 @@ class Planner:
             if self.llm_base_url:
                 client_kwargs["base_url"] = self.llm_base_url
             self.llm_client = AsyncOpenAI(**client_kwargs)
+            print(f"[Planner] Using LLM: {self.llm_model} @ {self.llm_base_url or 'default'}")
     
     async def plan(
         self,
@@ -85,16 +100,31 @@ class Planner:
 5. 独立任务可并行
 """
         
-        # 调用LLM
-        response = await self.llm_client.chat.completions.create(
-            model=self.llm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.3,
-            max_tokens=2000
-        )
+        # 调用LLM (使用JSON mode如果支持)
+        try:
+            # 尝试使用JSON schema模式 (OpenAI-compatible)
+            response = await self.llm_client.chat.completions.create(
+                model=self.llm_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.3,
+                max_tokens=2000,
+                response_format={"type": "json_object"}
+            )
+        except Exception as e:
+            # Fallback: 不使用JSON mode（某些模型可能不支持）
+            print(f"[Planner] JSON mode not supported, falling back: {e}")
+            response = await self.llm_client.chat.completions.create(
+                model=self.llm_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
         
         # 解析LLM返回的JSON
         content = response.choices[0].message.content.strip()

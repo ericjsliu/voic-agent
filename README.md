@@ -71,6 +71,12 @@ ASR文本 → 上下文组装 → 规划器(LLM) → 编排器(状态机) → �
 ## 环境变量
 
 ```bash
+# LLM配置 (Alibaba DashScope OpenAI-compatible)
+# 获取API Key: https://dashscope.console.aliyun.com/
+OPENAI_API_KEY=sk-your-dashscope-api-key-here
+OPENAI_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_DEFAULT_MODEL=qwen-turbo
+
 # Agent服务
 AGENT_PORT=8000
 MQTT_BROKER=localhost
@@ -81,45 +87,58 @@ REDIS_URL=redis://localhost:6379/0
 HYBRID_RAG_BASE_URL=http://localhost:8001
 HYBRID_RAG_API_KEY=  # 可选
 
-# LLM配置（可选，不配置则使用规则式规划）
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-xxx
-LLM_MODEL=gpt-3.5-turbo
+# 备注：
+# - 如果不配置 OPENAI_API_KEY，系统会使用规则式规划fallback
+# - 可用模型: qwen-turbo, qwen-plus, qwen-max, qwen3.8-27b 等
+# - 本地开发: 复制 .env.example 为 .env 并填入真实API Key
+# - Docker: 在 .env 文件中配置，docker-compose会自动读取
 ```
+
+**⚠️ 安全提示**: 不要将真实的API Key提交到代码仓库！使用 `.env` 文件（已在 `.gitignore` 中）存储敏感信息。
 
 ## 快速启动
 
 ### 使用Docker Compose（一键启动）
 
 ```bash
-# 启动所有服务（agent, mock_vehicle, mock_rag, mosquitto, redis）
+# 1. 配置环境变量（首次运行）
+cp .env.example .env
+# 编辑 .env 文件，填入你的 Alibaba DashScope API Key
+
+# 2. 启动所有服务（agent, mock_vehicle, mock_rag, mosquitto, redis）
 docker-compose up --build
 
 # 等待服务启动完成（约10秒）
 # Agent: http://localhost:8000
 # Mock RAG: http://localhost:8001
 # MQTT: localhost:1883
+
+# 提示：如果没有配置 OPENAI_API_KEY，系统会自动使用规则式规划fallback
 ```
 
 ### 本地开发模式
 
 ```bash
-# 1. 安装依赖
+# 1. 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填入你的 Alibaba DashScope API Key
+
+# 2. 安装依赖
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 2. 启动MQTT Broker（使用mosquitto或其他）
+# 3. 启动MQTT Broker（使用mosquitto或其他）
 docker run -d -p 1883:1883 eclipse-mosquitto:2.0
 
-# 3. 启动Redis（可选）
+# 4. 启动Redis（可选）
 docker run -d -p 6379:6379 redis:7-alpine
 
-# 4. 启动Mock RAG服务
+# 5. 启动Mock RAG服务
 python -m app.mock_rag.mock_rag_service
 
-# 5. 启动Mock Vehicle
+# 6. 启动Mock Vehicle
 python -m app.vehicle_mock.mock_vehicle
 
-# 6. 启动Agent
+# 7. 启动Agent (会自动读取 .env 文件)
 python -m app.main
 ```
 
@@ -396,6 +415,24 @@ docker exec cockpit_agent env | grep -E "(MQTT|RAG|LLM)"
 3. 在 `orchestrator.py` 注册适配器
 4. 在 `planner.py` 添加规划规则
 5. 添加测试
+
+### 配置LLM模型
+
+Alibaba DashScope 支持多种Qwen模型：
+
+```bash
+# 快速模型（推荐用于开发/测试）
+LLM_DEFAULT_MODEL=qwen-turbo
+
+# 更强大的模型
+LLM_DEFAULT_MODEL=qwen-plus
+LLM_DEFAULT_MODEL=qwen-max
+
+# 特定版本
+LLM_DEFAULT_MODEL=qwen3.8-27b
+```
+
+完整模型列表: https://help.aliyun.com/zh/dashscope/developer-reference/model-square
 
 ### 接入真实RAG服务
 
