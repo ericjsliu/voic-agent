@@ -26,6 +26,7 @@ function App() {
   const [config, setConfig] = useState<ConnectionConfig>({
     baseUrl: 'http://localhost:8000',
     driverId: 'driver_001',
+    vehicleModel: 'model_a',
     modelFilter: 'ModelA',
     versionFilter: '2024'
   })
@@ -206,7 +207,9 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          driver_id: config.driverId
+          driver_id: config.driverId,
+          vehicle_id: 'vehicle_001',
+          vehicle_model: config.vehicleModel
         })
       })
       const data = await response.json()

@@ -1,0 +1,129 @@
+{
+  "model_id": "model_b",
+  "model_name": "Model B (Premium)",
+  "hardware_option": "premium",
+  "version": "1.0",
+  "description": "高配版，全功能支持",
+  
+  "supported_actions": [
+    "window_open",
+    "window_close",
+    "door_lock",
+    "door_unlock",
+    "ac_on",
+    "ac_off",
+    "ac_set_temp",
+    "sunroof_open",
+    "sunroof_close",
+    "seat_heat_on",
+    "seat_heat_off",
+    "trunk_open"
+  ],
+  
+  "action_capabilities": {
+    "window_open": {
+      "action": "window_open",
+      "supported": true,
+      "requires_park": false,
+      "description": "打开车窗"
+    },
+    "window_close": {
+      "action": "window_close",
+      "supported": true,
+      "requires_park": false,
+      "description": "关闭车窗"
+    },
+    "door_lock": {
+      "action": "door_lock",
+      "supported": true,
+      "requires_park": true,
+      "description": "锁车"
+    },
+    "door_unlock": {
+      "action": "door_unlock",
+      "supported": true,
+      "requires_park": true,
+      "description": "解锁"
+    },
+    "ac_on": {
+      "action": "ac_on",
+      "supported": true,
+      "description": "开启空调"
+    },
+    "ac_off": {
+      "action": "ac_off",
+      "supported": true,
+      "description": "关闭空调"
+    },
+    "ac_set_temp": {
+      "action": "ac_set_temp",
+      "supported": true,
+      "param_ranges": {
+        "value": {
+          "min": 18.0,
+          "max": 28.0,
+          "step": 0.5
+        }
+      },
+      "description": "设置空调温度（高配范围更窄）"
+    },
+    "sunroof_open": {
+      "action": "sunroof_open",
+      "supported": true,
+      "requires_stationary": true,
+      "description": "打开天窗（需要静止）"
+    },
+    "sunroof_close": {
+      "action": "sunroof_close",
+      "supported": true,
+      "requires_stationary": false,
+      "description": "关闭天窗"
+    },
+    "seat_heat_on": {
+      "action": "seat_heat_on",
+      "supported": true,
+      "description": "座椅加热"
+    },
+    "seat_heat_off": {
+      "action": "seat_heat_off",
+      "supported": true,
+      "description": "关闭座椅加热"
+    },
+    "trunk_open": {
+      "action": "trunk_open",
+      "supported": true,
+      "requires_park": true,
+      "description": "电动后备箱"
+    }
+  },
+  
+  "l1_gate_overrides": [],
+  
+  "features": {
+    "has_sunroof": true,
+    "has_rear_ac": true,
+    "has_seat_heating": true,
+    "has_trunk_power": true,
+    "has_360_camera": true,
+    "multi_zone_ac": true
+  },
+  
+  "command_mappings": [
+    {
+      "taskgraph_action": "window_open",
+      "vehicle_command": "WINDOW_CONTROL",
+      "params_mapping": {
+        "target": "window_id",
+        "action": "open"
+      }
+    },
+    {
+      "taskgraph_action": "sunroof_open",
+      "vehicle_command": "SUNROOF_CTRL_OPEN"
+    },
+    {
+      "taskgraph_action": "trunk_open",
+      "vehicle_command": "PWR_TRUNK_OPEN"
+    }
+  ]
+}

@@ -44,6 +44,7 @@ export interface ConnectionConfig {
   baseUrl: string;
   sessionId?: string;
   driverId: string;
+  vehicleModel: string;
   modelFilter?: string;
   versionFilter?: string;
 }

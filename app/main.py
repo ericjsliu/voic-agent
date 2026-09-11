@@ -29,6 +29,7 @@ from .adapters import (
     ChitchatAdapter,
 )
 from .planner import Planner
+from .planner.capability_wrapper import CapabilityAwarePlanner
 from .orchestrator import Orchestrator
 from .session import SessionManager, ContextAssembler
 
@@ -231,6 +232,7 @@ class SessionCreateRequest(BaseModel):
     """创建会话请求"""
     driver_id: Optional[str] = None
     vehicle_id: Optional[str] = None
+    vehicle_model: Optional[str] = "model_a"
 
 
 class SessionResponse(BaseModel):
@@ -271,7 +273,8 @@ async def create_session(request: SessionCreateRequest):
     """创建会话"""
     session_info = await app_state.session_manager.create_session(
         driver_id=request.driver_id,
-        vehicle_id=request.vehicle_id
+        vehicle_id=request.vehicle_id,
+        vehicle_model=request.vehicle_model
     )
     
     return SessionResponse(
@@ -309,10 +312,14 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     # 更新orchestrator的shadow_state
     app_state.orchestrator.shadow_state = context.shadow_state
     
-    # 规划TaskGraph
+    # 获取能力档案
+    capability_profile = await app_state.session_manager.get_capability_profile(session_info.session_id)
+    
+    # 规划TaskGraph（带能力档案过滤）
     taskgraph: TaskGraph = await app_state.planner.plan(
         user_utterance=request.utterance,
-        context=context
+        context=context,
+        capability_profile=capability_profile
     )
     
     # 广播TaskGraph到WebSocket

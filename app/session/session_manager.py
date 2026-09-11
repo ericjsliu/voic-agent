@@ -7,6 +7,7 @@ import uuid
 
 from ..schemas.context import SessionInfo
 from ..memory import BaseMemoryStore
+from ..capabilities import CapabilityProfile, get_capability_loader
 
 
 class SessionManager:
@@ -19,11 +20,21 @@ class SessionManager:
     async def create_session(
         self,
         driver_id: Optional[str] = None,
-        vehicle_id: Optional[str] = None
+        vehicle_id: Optional[str] = None,
+        vehicle_model: Optional[str] = None
     ) -> SessionInfo:
         """创建新会话"""
         session_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat() + "Z"
+        
+        # 加载能力档案
+        loader = get_capability_loader()
+        model_id = vehicle_model or "model_a"
+        capability_profile = loader.get_profile(model_id)
+        
+        if not capability_profile:
+            print(f"[SessionManager] WARNING: Profile not found for {model_id}, using default")
+            capability_profile = loader.get_default_profile()
         
         session_info = SessionInfo(
             session_id=session_id,
@@ -34,6 +45,14 @@ class SessionManager:
         )
         
         self.active_sessions[session_id] = session_info
+        
+        # 存储能力档案（扩展数据）
+        if capability_profile:
+            await self.memory_store.set_json(
+                f"capability_profile:{session_id}",
+                capability_profile.model_dump(),
+                expire=3600 * 24
+            )
         
         # 持久化（可选）
         await self.memory_store.set_json(
@@ -99,6 +118,16 @@ class SessionManager:
         
         return session_info
     
+    async def get_capability_profile(self, session_id: str) -> Optional[CapabilityProfile]:
+        """获取会话的能力档案"""
+        profile_data = await self.memory_store.get_json(f"capability_profile:{session_id}")
+        if profile_data:
+            try:
+                return CapabilityProfile(**profile_data)
+            except Exception as e:
+                print(f"[SessionManager] Failed to parse capability profile: {e}")
+        return None
+    
     async def end_session(self, session_id: str):
         """结束会话"""
         if session_id in self.active_sessions:
@@ -107,3 +136,4 @@ class SessionManager:
         await self.memory_store.delete(f"session:{session_id}")
         await self.memory_store.delete(f"shadow_state:{session_id}")
         await self.memory_store.delete(f"memory_slice:{session_id}")
+        await self.memory_store.delete(f"capability_profile:{session_id}")

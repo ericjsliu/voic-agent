@@ -86,3 +86,10 @@
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
 }
+
+.model-hint {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #64b5f6;
+  font-style: italic;
+}

@@ -23,11 +23,13 @@ class MockVehicle:
         self,
         mqtt_broker: str = "localhost",
         mqtt_port: int = 1883,
-        client_id: str = "mock_vehicle"
+        client_id: str = "mock_vehicle",
+        model_id: str = "model_a"
     ):
         self.mqtt_broker = mqtt_broker
         self.mqtt_port = mqtt_port
         self.client_id = client_id
+        self.model_id = model_id
         
         self.client = mqtt.Client(client_id=client_id)
         self.client.on_connect = self._on_connect
@@ -35,6 +37,7 @@ class MockVehicle:
         
         # 车辆状态
         self.vehicle_state = {
+            "model_id": model_id,
             "gear": "P",
             "speed_kmh": 0,
             "latitude": 39.9042,
@@ -168,6 +171,7 @@ class MockVehicle:
         while True:
             telemetry = {
                 "vehicle_id": "vehicle_001",
+                "model_id": self.model_id,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "gear": self.vehicle_state["gear"],
                 "speed_kmh": self.vehicle_state["speed_kmh"],
@@ -181,6 +185,7 @@ class MockVehicle:
             
             payload = json.dumps(telemetry, ensure_ascii=False)
             self.client.publish(self.TOPIC_UPLINK_TELEMETRY, payload)
+            print(f"[MockVehicle] Published telemetry (model={self.model_id})")
             
             await asyncio.sleep(interval)
     
@@ -201,8 +206,10 @@ async def main():
     """主函数"""
     mqtt_broker = os.getenv("MQTT_BROKER", "localhost")
     mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
+    model_id = sys.argv[1] if len(sys.argv) > 1 else "model_a"
     
-    vehicle = MockVehicle(mqtt_broker, mqtt_port)
+    vehicle = MockVehicle(mqtt_broker, mqtt_port, model_id=model_id)
+    print(f"[MockVehicle] Starting with model: {model_id}")
     vehicle.start()
     
     # 启动遥测发布

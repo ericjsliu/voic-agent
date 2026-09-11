@@ -1,0 +1,106 @@
+{
+  "model_id": "model_a",
+  "model_name": "Model A (Standard)",
+  "hardware_option": "base",
+  "version": "1.0",
+  "description": "标准配置，基础功能",
+  
+  "supported_actions": [
+    "window_open",
+    "window_close",
+    "door_lock",
+    "door_unlock",
+    "ac_on",
+    "ac_off",
+    "ac_set_temp"
+  ],
+  
+  "action_capabilities": {
+    "window_open": {
+      "action": "window_open",
+      "supported": true,
+      "requires_park": false,
+      "description": "打开车窗（允许任何档位）"
+    },
+    "window_close": {
+      "action": "window_close",
+      "supported": true,
+      "requires_park": false,
+      "requires_stationary": false,
+      "description": "关闭车窗（允许行驶中）"
+    },
+    "door_lock": {
+      "action": "door_lock",
+      "supported": true,
+      "requires_park": true,
+      "description": "锁车（需要P档）"
+    },
+    "door_unlock": {
+      "action": "door_unlock",
+      "supported": true,
+      "requires_park": true,
+      "description": "解锁车门"
+    },
+    "ac_on": {
+      "action": "ac_on",
+      "supported": true,
+      "description": "开启空调"
+    },
+    "ac_off": {
+      "action": "ac_off",
+      "supported": true,
+      "description": "关闭空调"
+    },
+    "ac_set_temp": {
+      "action": "ac_set_temp",
+      "supported": true,
+      "param_ranges": {
+        "value": {
+          "min": 16.0,
+          "max": 30.0,
+          "step": 0.5
+        }
+      },
+      "description": "设置空调温度"
+    }
+  },
+  
+  "l1_gate_overrides": [
+    {
+      "action": "window_close",
+      "requires_park": false,
+      "requires_stationary": false
+    }
+  ],
+  
+  "features": {
+    "has_sunroof": false,
+    "has_rear_ac": false,
+    "has_seat_heating": false,
+    "has_trunk_power": false,
+    "has_360_camera": false,
+    "multi_zone_ac": false
+  },
+  
+  "command_mappings": [
+    {
+      "taskgraph_action": "window_open",
+      "vehicle_command": "WIN_OPEN"
+    },
+    {
+      "taskgraph_action": "window_close",
+      "vehicle_command": "WIN_CLOSE"
+    },
+    {
+      "taskgraph_action": "door_lock",
+      "vehicle_command": "DOOR_LOCK_ALL"
+    },
+    {
+      "taskgraph_action": "ac_set_temp",
+      "vehicle_command": "HVAC_SET_TEMP",
+      "params_mapping": {
+        "value": "temperature"
+      }
+    }
+  ]
+}

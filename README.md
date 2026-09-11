@@ -31,19 +31,26 @@ ASR文本 → 上下文组装 → 规划器(LLM) → 编排器(状态机) → �
    - 支持并行执行独立步骤
    - 处理车辆写回（ack/confirm/nav事件）
 
-5. **领域适配器（Domain Adapters）**
-   - **vehicle**: 车辆控制，验证档位/车速约束
+5. **能力档案（Capability Profiles）**
+   - 基于vehicle_model的动作白名单、参数范围、L1门控规则覆盖、功能特性标志
+   - Model A (Standard): 基础功能（车窗、车门、空调）- 不支持天窗、座椅加热
+   - Model B (Premium): 完整功能包括天窗、座椅加热、电动后备箱
+   - 不支持的动作触发TTS"不支持"提示而非执行
+   - 车辆连接时报告model_id → Session加载档案 → Planner过滤动作 → 仅支持的动作进入TaskGraph → Adapter验证 → MQTT发布
+
+6. **领域适配器（Domain Adapters）**
+   - **vehicle**: 车辆控制，验证档位/车速约束，能力档案验证
    - **navigation**: 导航，POI解析，mock地图
    - **media**: 媒体控制
    - **calendar**: 日历操作
    - **knowledge**: 混合RAG查询（仅文本，v1不支持视频）
    - **chitchat**: 闲聊，无schema/状态/记忆
 
-6. **记忆存储（Memory Store）**
+7. **记忆存储（Memory Store）**
    - Redis + in-memory fallback
    - 白名单两阶段写入（user_prefs, vehicle_config, frequent_destinations, music_prefs）
 
-7. **混合RAG客户端（Hybrid RAG Client）**
+8. **混合RAG客户端（Hybrid RAG Client）**
    - HTTP调用外部RAG服务
    - 支持车型/版本过滤
    - 返回带引用的结果
@@ -150,18 +157,23 @@ python -m app.main
 
 **功能特性**：
 - 💬 **聊天对话**：模拟语音输入，输入文本即可与智能座舱对话
+- 🚗 **车型选择**：下拉菜单选择Model A/Model B，演示能力档案适配（不同车型支持不同动作）
 - 🎯 **快捷短语**：预设demo场景一键发送（多意图、L2确认、RAG查询、闲聊）
 - ✅ **L2确认**：高风险操作（锁车/开后备箱）弹出确认/取消按钮
 - 📊 **实时面板**：
   - TaskGraph JSON可视化
   - Writeback事件流
   - 车辆遥测数据（档位、车速、锁状态、空调等）
-- 🔌 **连接设置**：配置Agent URL、Driver ID、车型/版本过滤
+- 🔌 **连接设置**：配置Agent URL、Driver ID、车辆Model、RAG车型/版本过滤
 - 🌐 **WebSocket实时通信**：零延迟接收TaskGraph和Writeback
 
 **Demo演示**：
-1. 点击 "Create Session" 创建会话
-2. 使用快捷短语或自定义输入测试各种场景：
+1. **能力档案测试**：
+   - 选择 "Model A (Standard)"，创建会话
+   - 输入 `打开天窗` → 看到TTS提示"抱歉，您的车辆（Model A）不支持该功能：sunroof_open"
+   - 选择 "Model B (Premium)"，创建新会话
+   - 输入 `打开天窗` → 成功执行（Model B支持天窗）
+2. 使用快捷短语或自定义输入测试其他场景：
    - **多意图**：`打开车窗，同时播放音乐` → 看右侧TaskGraph显示并行步骤
    - **L2确认**：`锁车` → 弹出确认按钮，15秒倒计时
    - **RAG查询**：`如何使用空调` → 看到带引用的知识回复

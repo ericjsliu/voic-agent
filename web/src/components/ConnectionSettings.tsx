@@ -30,9 +30,24 @@ export default function ConnectionSettings({ config, onChange, onCreateSession }
         />
       </div>
       
+      <div className="settings-row">
+        <label>Vehicle Model (Capability Profile)</label>
+        <select
+          value={config.vehicleModel}
+          onChange={(e) => onChange({ ...config, vehicleModel: e.target.value })}
+        >
+          <option value="model_a">Model A (Standard) - Basic Features</option>
+          <option value="model_b">Model B (Premium) - Full Features</option>
+        </select>
+        <div className="model-hint">
+          {config.vehicleModel === 'model_a' && '🚗 Supports: window, door, AC control'}
+          {config.vehicleModel === 'model_b' && '🚙 Supports: + sunroof, seat heating, power trunk'}
+        </div>
+      </div>
+      
       <div className="settings-row-inline">
         <div className="settings-col">
-          <label>Model</label>
+          <label>RAG Model Filter</label>
           <select
             value={config.modelFilter || ''}
             onChange={(e) => onChange({ ...config, modelFilter: e.target.value || undefined })}
@@ -44,7 +59,7 @@ export default function ConnectionSettings({ config, onChange, onCreateSession }
         </div>
         
         <div className="settings-col">
-          <label>Version</label>
+          <label>RAG Version</label>
           <input
             type="text"
             value={config.versionFilter || ''}
