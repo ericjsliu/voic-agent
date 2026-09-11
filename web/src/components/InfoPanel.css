@@ -1,0 +1,198 @@
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  background: rgba(26, 31, 58, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.tabs {
+  display: flex;
+  background: rgba(10, 14, 39, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tab {
+  flex: 1;
+  padding: 0.875rem 1rem;
+  background: none;
+  border: none;
+  color: #8b92a7;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e0e6ed;
+}
+
+.tab.active {
+  color: #00d4ff;
+  background: rgba(0, 212, 255, 0.1);
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #00d4ff, #00a8ff);
+}
+
+.badge {
+  padding: 0.125rem 0.5rem;
+  background: #00ff88;
+  color: #0a0e27;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.panel-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.tab-content {
+  height: 100%;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.json-view {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: #a8b5c8;
+  background: rgba(10, 14, 39, 0.5);
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.writebacks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.writeback-item {
+  background: rgba(45, 53, 72, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 0.875rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+.writeback-header {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.event-badge,
+.status-badge {
+  padding: 0.25rem 0.625rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.event-badge {
+  background: rgba(0, 168, 255, 0.2);
+  color: #00d4ff;
+  border: 1px solid rgba(0, 168, 255, 0.3);
+}
+
+.status-badge.success,
+.status-badge.accepted {
+  background: rgba(0, 255, 136, 0.2);
+  color: #00ff88;
+  border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.status-badge.failed,
+.status-badge.rejected,
+.status-badge.declined {
+  background: rgba(255, 68, 68, 0.2);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 68, 68, 0.3);
+}
+
+.writeback-details {
+  font-size: 0.8125rem;
+  color: #a8b5c8;
+  line-height: 1.6;
+}
+
+.writeback-details .reason {
+  margin-top: 0.25rem;
+  color: #ff6b6b;
+}
+
+.writeback-time {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.5rem;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.telemetry-item {
+  background: rgba(45, 53, 72, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.telemetry-item .label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.telemetry-item .value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e0e6ed;
+}
+
+.telemetry-item .value.small {
+  font-size: 0.875rem;
+}
+
+.telemetry-item .value.locked {
+  color: #ff6b6b;
+}
+
+.telemetry-item .value.unlocked {
+  color: #00ff88;
+}

@@ -6,12 +6,15 @@ import os
 import json
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import paho.mqtt.client as mqtt
+import json as json_lib
 
 from .schemas import TaskGraph, WritebackEnvelope
 from .schemas.context import DialogueContext
@@ -42,9 +45,47 @@ class AppState:
         self.orchestrator = None
         self.mqtt_client = None
         self.adapters = {}
+        self.websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> [ws]
 
 
 app_state = AppState()
+
+
+class ConnectionManager:
+    """WebSocket连接管理器"""
+    
+    async def connect(self, websocket: WebSocket, session_id: str):
+        """连接WebSocket"""
+        await websocket.accept()
+        if session_id not in app_state.websocket_connections:
+            app_state.websocket_connections[session_id] = []
+        app_state.websocket_connections[session_id].append(websocket)
+        print(f"[WS] Client connected to session {session_id}")
+    
+    def disconnect(self, websocket: WebSocket, session_id: str):
+        """断开WebSocket"""
+        if session_id in app_state.websocket_connections:
+            app_state.websocket_connections[session_id].remove(websocket)
+            if not app_state.websocket_connections[session_id]:
+                del app_state.websocket_connections[session_id]
+        print(f"[WS] Client disconnected from session {session_id}")
+    
+    async def broadcast_to_session(self, session_id: str, message: dict):
+        """向会话广播消息"""
+        if session_id in app_state.websocket_connections:
+            disconnected = []
+            for ws in app_state.websocket_connections[session_id]:
+                try:
+                    await ws.send_json(message)
+                except:
+                    disconnected.append(ws)
+            
+            # 清理断开的连接
+            for ws in disconnected:
+                self.disconnect(ws, session_id)
+
+
+ws_manager = ConnectionManager()
 
 
 # ==================== MQTT ====================
@@ -160,6 +201,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# CORS中间件（开发环境）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 生产环境应限制具体域名
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ==================== API Schemas ====================
 class DialogueRequest(BaseModel):
@@ -265,12 +315,34 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         context=context
     )
     
+    # 广播TaskGraph到WebSocket
+    await ws_manager.broadcast_to_session(
+        session_info.session_id,
+        {
+            "type": "taskgraph",
+            "data": json_lib.loads(taskgraph.model_dump_json())
+        }
+    )
+    
     # 后台执行TaskGraph
     async def execute_and_publish():
         """执行并发布TaskGraph"""
         try:
+            # 自定义writeback回调：广播到WebSocket
+            async def writeback_callback(writeback):
+                await ws_manager.broadcast_to_session(
+                    session_info.session_id,
+                    {
+                        "type": "writeback",
+                        "data": json_lib.loads(writeback.model_dump_json())
+                    }
+                )
+            
             # 执行
-            result = await app_state.orchestrator.execute_taskgraph(taskgraph)
+            result = await app_state.orchestrator.execute_taskgraph(
+                taskgraph,
+                writeback_callback=writeback_callback
+            )
             print(f"[Agent] TaskGraph execution result: {result}")
             
             # 发布到MQTT下行
@@ -305,6 +377,57 @@ async def switch_driver(session_id: str, driver_id: str):
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket端点：实时接收TaskGraph和Writeback"""
+    await ws_manager.connect(websocket, session_id)
+    try:
+        while True:
+            # 接收客户端消息（心跳或L2确认）
+            data = await websocket.receive_json()
+            
+            if data.get("type") == "l2_confirm":
+                # 处理L2确认
+                task_id = data.get("task_id")
+                step_id = data.get("step_id")
+                branch_id = data.get("branch_id", "main")
+                accepted = data.get("accepted", False)
+                
+                # 创建writeback
+                from .schemas import WritebackEnvelope, WritebackEvent, WritebackStatus
+                writeback = WritebackEnvelope(
+                    task_id=task_id,
+                    step_id=step_id,
+                    branch_id=branch_id,
+                    event=WritebackEvent.CONFIRM_RESULT,
+                    status=WritebackStatus.ACCEPTED if accepted else WritebackStatus.DECLINED,
+                    ts=datetime.utcnow().isoformat() + "Z"
+                )
+                
+                # 传给orchestrator
+                await app_state.orchestrator.handle_writeback(writeback)
+                
+                # 广播结果
+                await ws_manager.broadcast_to_session(
+                    session_id,
+                    {
+                        "type": "writeback",
+                        "data": json_lib.loads(writeback.model_dump_json())
+                    }
+                )
+    
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, session_id)
+
+
+# 静态文件服务（Web UI）
+import os
+web_dist_path = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
+if os.path.exists(web_dist_path):
+    app.mount("/ui", StaticFiles(directory=web_dist_path, html=True), name="ui")
+    print(f"[Agent] Serving Web UI at /ui")
 
 
 if __name__ == "__main__":

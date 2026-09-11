@@ -77,6 +77,19 @@ services:
       - cockpit_network
     command: python -m app.vehicle_mock.mock_vehicle
 
+  # Web UI (React + Vite)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: cockpit_web_ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - agent
+    networks:
+      - cockpit_network
+
 networks:
   cockpit_network:
     driver: bridge

@@ -142,7 +142,46 @@ python -m app.vehicle_mock.mock_vehicle
 python -m app.main
 ```
 
-## API演示
+## Web UI 测试界面
+
+### 快速体验
+
+启动系统后，在浏览器打开 **http://localhost:3000** 即可使用交互式聊天界面：
+
+**功能特性**：
+- 💬 **聊天对话**：模拟语音输入，输入文本即可与智能座舱对话
+- 🎯 **快捷短语**：预设demo场景一键发送（多意图、L2确认、RAG查询、闲聊）
+- ✅ **L2确认**：高风险操作（锁车/开后备箱）弹出确认/取消按钮
+- 📊 **实时面板**：
+  - TaskGraph JSON可视化
+  - Writeback事件流
+  - 车辆遥测数据（档位、车速、锁状态、空调等）
+- 🔌 **连接设置**：配置Agent URL、Driver ID、车型/版本过滤
+- 🌐 **WebSocket实时通信**：零延迟接收TaskGraph和Writeback
+
+**Demo演示**：
+1. 点击 "Create Session" 创建会话
+2. 使用快捷短语或自定义输入测试各种场景：
+   - **多意图**：`打开车窗，同时播放音乐` → 看右侧TaskGraph显示并行步骤
+   - **L2确认**：`锁车` → 弹出确认按钮，15秒倒计时
+   - **RAG查询**：`如何使用空调` → 看到带引用的知识回复
+   - **导航**：`导航到机场` → POI自动解析为坐标
+   - **闲聊**：`今天天气真好` → 系统识别为chitchat域
+
+**截图展示**：
+
+<details>
+<summary>展开查看UI截图</summary>
+
+![Web UI](docs/screenshot-web-ui.png)
+
+深色座舱风格，左侧聊天对话，右侧实时数据面板。
+
+</details>
+
+---
+
+## API演示（命令行）
 
 ### 1. 健康检查
 
