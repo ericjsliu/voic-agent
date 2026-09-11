@@ -7,7 +7,7 @@ services:
     container_name: cockpit_mqtt
     ports:
       - "1883:1883"
-      - "9001:9001"
+      - "19001:9001"  # 主机 9001 已被 kb-minio 占用，改映射到 19001
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
     networks:
