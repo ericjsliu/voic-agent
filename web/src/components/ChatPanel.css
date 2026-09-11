@@ -78,6 +78,58 @@
   line-height: 1.5;
 }
 
+.citations {
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.citations-header {
+  font-size: 0.75rem;
+  color: #8b92a7;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.citation-card {
+  background: rgba(0, 168, 255, 0.1);
+  border: 1px solid rgba(0, 168, 255, 0.2);
+  border-radius: 6px;
+  padding: 0.625rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.citation-card:last-child {
+  margin-bottom: 0;
+}
+
+.citation-meta {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.citation-meta .section {
+  color: #00d4ff;
+  font-weight: 500;
+}
+
+.citation-meta .page {
+  color: #8b92a7;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.75rem;
+}
+
+.citation-doc {
+  color: #6b7280;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
 .message-time {
   font-size: 0.75rem;
   color: #6b7280;

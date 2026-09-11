@@ -104,6 +104,13 @@
   border-radius: 8px;
   padding: 0.875rem;
   animation: slideIn 0.3s ease-out;
+  transition: all 0.2s;
+}
+
+.writeback-item.highlighted {
+  border-color: rgba(255, 107, 107, 0.5);
+  background: rgba(255, 68, 68, 0.1);
+  box-shadow: 0 0 12px rgba(255, 68, 68, 0.2);
 }
 
 .writeback-header {
@@ -148,8 +155,18 @@
 }
 
 .writeback-details .reason {
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.writeback-details .reason.error {
   color: #ff6b6b;
+  border-left: 3px solid #ff6b6b;
+  padding-left: 0.625rem;
 }
 
 .writeback-time {

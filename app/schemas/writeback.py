@@ -26,6 +26,7 @@ class WritebackStatus(str, Enum):
     ACCEPTED = "accepted"  # 用户确认接受
     DECLINED = "declined"  # 用户确认拒绝
     TIMEOUT = "timeout"  # 确认超时
+    PENDING = "pending"  # L2等待确认中
 
 
 class WritebackEnvelope(BaseModel):

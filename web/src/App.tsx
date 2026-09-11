@@ -2,14 +2,26 @@ import { useState, useEffect, useRef } from 'react'
 import ChatPanel from './components/ChatPanel'
 import InfoPanel from './components/InfoPanel'
 import ConnectionSettings from './components/ConnectionSettings'
+import VehicleStatePanel from './components/VehicleStatePanel'
+import L2ConfirmZone from './components/L2ConfirmZone'
 import { Message, Writeback, VehicleTelemetry, ConnectionConfig } from './types'
 import './App.css'
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [writebacks, setWritebacks] = useState<Writeback[]>([])
-  const [telemetry, setTelemetry] = useState<VehicleTelemetry | null>(null)
+  const [telemetry, setTelemetry] = useState<VehicleTelemetry>({
+    gear: 'P',
+    speed_kmh: 0,
+    latitude: 39.9042,
+    longitude: 116.4074,
+    windows_status: 'closed',
+    doors_locked: true,
+    ac_on: false,
+    ac_temp: 24
+  })
   const [currentTaskGraph, setCurrentTaskGraph] = useState<any>(null)
+  const [pendingL2, setPendingL2] = useState<any>(null)
   const [connected, setConnected] = useState(false)
   const [config, setConfig] = useState<ConnectionConfig>({
     baseUrl: 'http://localhost:8000',
@@ -50,21 +62,45 @@ function App() {
         )
         
         if (l2Step) {
+          const l2Info = {
+            taskId: data.data.tasks[0].task_id,
+            stepId: l2Step.step_id,
+            branchId: data.data.tasks[0].branch_id,
+            action: l2Step.action?.action,
+            description: l2Step.description || l2Step.action?.action
+          }
+          setPendingL2(l2Info)
+          
           setMessages(prev => [...prev, {
             id: Date.now().toString(),
             type: 'system',
-            content: `需要确认：${l2Step.description || l2Step.action?.action}`,
-            timestamp: new Date().toISOString(),
-            l2Pending: {
-              taskId: data.data.tasks[0].task_id,
-              stepId: l2Step.step_id,
-              branchId: data.data.tasks[0].branch_id,
-              action: l2Step.action?.action
-            }
+            content: `⚠️ 需要确认：${l2Info.description}`,
+            timestamp: new Date().toISOString()
           }])
         }
       } else if (data.type === 'writeback') {
-        setWritebacks(prev => [data.data, ...prev].slice(0, 20))
+        const wb = data.data
+        setWritebacks(prev => [wb, ...prev].slice(0, 30))
+        
+        // 处理L2确认结果
+        if (wb.event === 'confirm_result') {
+          if (wb.status === 'accepted' || wb.status === 'declined' || wb.status === 'timeout') {
+            setPendingL2(null)
+            
+            const statusText = {
+              'accepted': '✓ 已确认执行',
+              'declined': '✕ 已取消操作',
+              'timeout': '⏱️ 确认超时 - 已取消'
+            }[wb.status] || '处理完成'
+            
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(),
+              type: 'system',
+              content: statusText,
+              timestamp: new Date().toISOString()
+            }])
+          }
+        }
       }
     }
     
@@ -94,7 +130,7 @@ function App() {
           session_id: config.sessionId,
           driver_id: config.driverId,
           utterance: text,
-          telemetry: telemetry || { gear: 'P', speed_kmh: 0 }
+          telemetry: telemetry
         })
       })
 
@@ -104,13 +140,18 @@ function App() {
         setConfig(prev => ({ ...prev, sessionId: data.session_id }))
       }
 
+      // 提取知识查询的citations
+      const knowledgeStep = data.taskgraph.tasks?.[0]?.steps?.find((s: any) => s.domain === 'knowledge')
+      const citations = knowledgeStep?.action?.citations
+
       // 添加助手回复
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: generateResponseText(data.taskgraph),
         timestamp: new Date().toISOString(),
-        taskGraph: data.taskgraph
+        taskGraph: data.taskgraph,
+        citations: citations
       }
       setMessages(prev => [...prev, assistantMsg])
       setCurrentTaskGraph(data.taskgraph)
@@ -197,6 +238,14 @@ function App() {
             config={config}
             onChange={setConfig}
             onCreateSession={handleCreateSession}
+          />
+          <VehicleStatePanel
+            telemetry={telemetry}
+            onTelemetryChange={setTelemetry}
+          />
+          <L2ConfirmZone
+            pendingConfirm={pendingL2}
+            onConfirm={handleL2Confirm}
           />
           <ChatPanel 
             messages={messages}

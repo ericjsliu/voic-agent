@@ -186,12 +186,12 @@ class Orchestrator:
                     now = datetime.utcnow()
                     for state in waiting_l2:
                         if state.confirm_deadline and now > state.confirm_deadline:
-                            # 确认超时
+                            # 确认超时 - 不重新请求Planner
                             state.status = StepStatus.CONFIRM_TIMEOUT
-                            state.error = "Confirmation timeout"
+                            state.error = "L2 confirmation timeout - cancelled"
                             task_state.failed_steps.add(state.step.step_id)
                             
-                            # 发送写回
+                            # 发送confirm_timeout写回
                             if writeback_callback:
                                 writeback = WritebackEnvelope(
                                     task_id=task.task_id,
@@ -199,10 +199,12 @@ class Orchestrator:
                                     branch_id=task.branch_id,
                                     event=WritebackEvent.CONFIRM_RESULT,
                                     status=WritebackStatus.TIMEOUT,
-                                    reason="L2 confirmation timeout",
+                                    reason="L2 confirmation timeout - operation cancelled",
                                     ts=datetime.utcnow().isoformat() + "Z"
                                 )
                                 await writeback_callback(writeback)
+                            
+                            print(f"[Orchestrator] L2 timeout {state.step.step_id} - CANCELLED, no re-ask")
                     
                     continue
                 else:
@@ -270,15 +272,27 @@ class Orchestrator:
             action_level = getattr(step.action, "level", ActionLevel.L0)
             
             if action_level == ActionLevel.L2:
-                # L2需要确认
+                # L2需要确认，不执行，不下行
                 step_state.status = StepStatus.WAITING_CONFIRM
                 step_state.confirm_deadline = datetime.utcnow() + timedelta(
                     seconds=self.L2_CONFIRM_TIMEOUT
                 )
                 
-                # 下行给车辆（请求确认）
-                # 实际实现中，这里会发送MQTT消息
-                print(f"[Orchestrator] L2 action {step.step_id} waiting for confirmation")
+                # 发送确认请求writeback（不是执行）
+                if writeback_callback:
+                    from ..schemas import WritebackEnvelope, WritebackEvent, WritebackStatus
+                    writeback = WritebackEnvelope(
+                        task_id=task.task_id,
+                        step_id=step.step_id,
+                        branch_id=task.branch_id,
+                        event=WritebackEvent.CONFIRM_RESULT,
+                        status=WritebackStatus.PENDING if hasattr(WritebackStatus, 'PENDING') else 'pending',
+                        reason=f"Waiting for user confirmation: {step.description or getattr(step.action, 'action', 'L2 action')}",
+                        ts=datetime.utcnow().isoformat() + "Z"
+                    )
+                    await writeback_callback(writeback)
+                
+                print(f"[Orchestrator] L2 action {step.step_id} waiting for confirmation (NOT executing)")
                 return
             
             # L0/L1立即执行

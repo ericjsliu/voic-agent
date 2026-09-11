@@ -43,6 +43,22 @@ export default function ChatPanel({ messages, onSend, onL2Confirm }: Props) {
           <div key={msg.id} className={`message ${msg.type}`}>
             <div className="message-content">
               <div className="message-text">{msg.content}</div>
+              {msg.citations && msg.citations.length > 0 && (
+                <div className="citations">
+                  <div className="citations-header">📚 References:</div>
+                  {msg.citations.map((citation, idx) => (
+                    <div key={idx} className="citation-card">
+                      <div className="citation-meta">
+                        {citation.section && <span className="section">{citation.section}</span>}
+                        {citation.page && <span className="page">p.{citation.page}</span>}
+                      </div>
+                      {citation.doc_id && (
+                        <div className="citation-doc">{citation.doc_id}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {msg.l2Pending && (
                 <div className="l2-confirm-buttons">
                   <button 

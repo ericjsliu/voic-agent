@@ -51,18 +51,29 @@ export default function InfoPanel({ taskGraph, writebacks, telemetry }: Props) {
             {writebacks.length > 0 ? (
               <div className="writebacks-list">
                 {writebacks.map((wb, idx) => (
-                  <div key={idx} className="writeback-item">
+                  <div 
+                    key={idx} 
+                    className={`writeback-item ${
+                      wb.status === 'rejected' || wb.status === 'timeout' ? 'highlighted' : ''
+                    }`}
+                  >
                     <div className="writeback-header">
                       <span className={`event-badge ${wb.event}`}>{wb.event}</span>
                       <span className={`status-badge ${wb.status}`}>{wb.status}</span>
                     </div>
                     <div className="writeback-details">
-                      <div>Task: {wb.task_id}</div>
-                      <div>Step: {wb.step_id}</div>
-                      {wb.reason && <div className="reason">原因: {wb.reason}</div>}
+                      <div><strong>Task:</strong> {wb.task_id.substring(0, 8)}...</div>
+                      <div><strong>Step:</strong> {wb.step_id}</div>
+                      {wb.reason && (
+                        <div className={`reason ${wb.status === 'rejected' || wb.status === 'timeout' ? 'error' : ''}`}>
+                          {wb.status === 'rejected' && '🚫 '}
+                          {wb.status === 'timeout' && '⏱️ '}
+                          {wb.reason}
+                        </div>
+                      )}
                     </div>
                     <div className="writeback-time">
-                      {new Date(wb.ts).toLocaleTimeString()}
+                      {new Date(wb.ts).toLocaleString()}
                     </div>
                   </div>
                 ))}

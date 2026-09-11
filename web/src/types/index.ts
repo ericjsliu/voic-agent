@@ -9,7 +9,14 @@ export interface Message {
     stepId: string;
     branchId: string;
     action: string;
+    description?: string;
   };
+  citations?: Array<{
+    doc_id: string;
+    section?: string;
+    page?: number;
+    score?: number;
+  }>;
 }
 
 export interface Writeback {

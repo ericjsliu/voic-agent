@@ -27,27 +27,32 @@ npm run dev
 ### 主界面布局
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  🚗 Smart Cockpit Voice Agent         ● Connected       │
-├───────────────────────┬─────────────────────────────────┤
-│ Connection Settings   │                                 │
-│ ┌───────────────────┐ │   TaskGraph / Writebacks /     │
-│ │ Base URL          │ │      Telemetry Tabs            │
-│ │ Driver ID         │ │                                 │
-│ │ Model/Version     │ │   [JSON显示区域]                │
-│ └───────────────────┘ │                                 │
-│                       │                                 │
-│ Chat Messages         │                                 │
-│ ┌───────────────────┐ │                                 │
-│ │ User: 打开车窗     │ │                                 │
-│ │ Assistant: 好的... │ │                                 │
-│ │ System: 需要确认... │ │                                 │
-│ │   [确认] [取消]    │ │                                 │
-│ └───────────────────┘ │                                 │
-│                       │                                 │
-│ [快捷短语chips]        │                                 │
-│ [输入框] [发送]        │                                 │
-└───────────────────────┴─────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  🚗 Smart Cockpit Voice Agent              ● Connected           │
+├─────────────────────────────┬────────────────────────────────────┤
+│ Connection Settings         │                                    │
+│ [Base URL] [Driver ID]      │  TaskGraph / Writebacks /         │
+│ [Model] [Version]           │     Telemetry Tabs                │
+├─────────────────────────────┤                                    │
+│ 🚗 Vehicle State (Mock)     │  [JSON/Stream显示区域]             │
+│ Gear: [P][R][N][D]          │                                    │
+│ Speed: [- 0 +] km/h         │                                    │
+│ Windows/Doors/AC toggles    │                                    │
+│ ⚠️ L1 Reject hints          │                                    │
+├─────────────────────────────┤                                    │
+│ 🔒 L2 Confirm Zone          │                                    │
+│ ⏱️ 15s Countdown            │                                    │
+│ [✓ 确认执行] [✕ 取消操作]    │                                    │
+├─────────────────────────────┤                                    │
+│ Chat Messages               │                                    │
+│ User: 打开车窗               │                                    │
+│ Assistant: 好的...          │                                    │
+│   📚 Citations (if RAG)     │                                    │
+│ System: ⚠️ 需要确认          │                                    │
+├─────────────────────────────┤                                    │
+│ [Quick chips]               │                                    │
+│ [Input] [Send]              │                                    │
+└─────────────────────────────┴────────────────────────────────────┘
 ```
 
 ### 左侧面板
