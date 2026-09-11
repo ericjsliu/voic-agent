@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Mock Vehicle - MQTT subscriber/publisher"""
+
+import asyncio
+import json
+import os
+import sys
+from datetime import datetime
+from typing import Optional
+import paho.mqtt.client as mqtt
+
+
+class MockVehicle:
+    """Mock车辆（仅接收orchestrator验证后的TaskGraph）"""
+    
+    # MQTT主题
+    TOPIC_DOWNLINK = "cockpit/agent/taskgraph"
+    TOPIC_UPLINK_WRITEBACK = "cockpit/agent/writeback"
+    TOPIC_UPLINK_TELEMETRY = "cockpit/agent/telemetry"
+    
+    def __init__(
+        self,
+        mqtt_broker: str = "localhost",
+        mqtt_port: int = 1883,
+        client_id: str = "mock_vehicle"
+    ):
+        self.mqtt_broker = mqtt_broker
+        self.mqtt_port = mqtt_port
+        self.client_id = client_id
+        
+        self.client = mqtt.Client(client_id=client_id)
+        self.client.on_connect = self._on_connect
+        self.client.on_message = self._on_message
+        
+        # 车辆状态
+        self.vehicle_state = {
+            "gear": "P",
+            "speed_kmh": 0,
+            "latitude": 39.9042,
+            "longitude": 116.4074,
+            "windows_status": "closed",
+            "doors_locked": True,
+            "ac_on": False,
+            "ac_temp": 24,
+        }
+    
+    def _on_connect(self, client, userdata, flags, rc):
+        """连接回调"""
+        if rc == 0:
+            print(f"[MockVehicle] Connected to MQTT broker")
+            # 订阅下行主题
+            client.subscribe(self.TOPIC_DOWNLINK)
+            print(f"[MockVehicle] Subscribed to {self.TOPIC_DOWNLINK}")
+        else:
+            print(f"[MockVehicle] Connection failed with code {rc}")
+    
+    def _on_message(self, client, userdata, msg):
+        """消息回调"""
+        try:
+            payload = json.loads(msg.payload.decode('utf-8'))
+            print(f"[MockVehicle] Received on {msg.topic}:")
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+            
+            # 处理TaskGraph下行
+            if msg.topic == self.TOPIC_DOWNLINK:
+                self._handle_taskgraph(payload)
+        
+        except Exception as e:
+            print(f"[MockVehicle] Error handling message: {e}")
+    
+    def _handle_taskgraph(self, taskgraph: dict):
+        """处理TaskGraph下行"""
+        print(f"[MockVehicle] Processing TaskGraph...")
+        
+        # Mock执行：遍历所有步骤，发送writeback
+        for task in taskgraph.get("tasks", []):
+            task_id = task.get("task_id")
+            branch_id = task.get("branch_id", "main")
+            
+            for step in task.get("steps", []):
+                step_id = step.get("step_id")
+                domain = step.get("domain")
+                action_data = step.get("action", {})
+                action = action_data.get("action")
+                level = action_data.get("level", "L0")
+                
+                print(f"[MockVehicle] Step {step_id}: {domain}.{action} (level={level})")
+                
+                # L2需要确认
+                if level == "L2":
+                    # Mock: 1秒后自动确认接受
+                    asyncio.create_task(
+                        self._send_confirm_result(task_id, step_id, branch_id, accepted=True, delay=1.0)
+                    )
+                    continue
+                
+                # L0/L1: 立即发送ack
+                if domain == "vehicle":
+                    asyncio.create_task(
+                        self._send_writeback(task_id, step_id, branch_id, "vehicle_ack", "success", delay=0.5)
+                    )
+                elif domain == "navigation":
+                    # Mock导航：2秒后route_started，5秒后arrived
+                    asyncio.create_task(
+                        self._send_writeback(task_id, step_id, branch_id, "nav_route_started", "success", delay=2.0)
+                    )
+                    asyncio.create_task(
+                        self._send_writeback(task_id, step_id, branch_id, "nav_arrived", "success", delay=5.0)
+                    )
+                elif domain == "media":
+                    asyncio.create_task(
+                        self._send_writeback(task_id, step_id, branch_id, "media_ack", "success", delay=0.5)
+                    )
+                elif domain == "calendar":
+                    asyncio.create_task(
+                        self._send_writeback(task_id, step_id, branch_id, "calendar_ack", "success", delay=0.5)
+                    )
+    
+    async def _send_writeback(
+        self,
+        task_id: str,
+        step_id: str,
+        branch_id: str,
+        event: str,
+        status: str,
+        reason: Optional[str] = None,
+        delay: float = 0.0
+    ):
+        """发送writeback"""
+        if delay > 0:
+            await asyncio.sleep(delay)
+        
+        writeback = {
+            "task_id": task_id,
+            "step_id": step_id,
+            "branch_id": branch_id,
+            "event": event,
+            "status": status,
+            "reason": reason,
+            "ts": datetime.utcnow().isoformat() + "Z"
+        }
+        
+        payload = json.dumps(writeback, ensure_ascii=False)
+        self.client.publish(self.TOPIC_UPLINK_WRITEBACK, payload)
+        print(f"[MockVehicle] Sent writeback: {event} -> {status}")
+    
+    async def _send_confirm_result(
+        self,
+        task_id: str,
+        step_id: str,
+        branch_id: str,
+        accepted: bool,
+        delay: float = 0.0
+    ):
+        """发送L2确认结果"""
+        if delay > 0:
+            await asyncio.sleep(delay)
+        
+        status = "accepted" if accepted else "declined"
+        await self._send_writeback(
+            task_id, step_id, branch_id,
+            "confirm_result", status
+        )
+    
+    async def publish_telemetry_loop(self, interval: float = 5.0):
+        """定期发布遥测数据"""
+        while True:
+            telemetry = {
+                "vehicle_id": "vehicle_001",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "gear": self.vehicle_state["gear"],
+                "speed_kmh": self.vehicle_state["speed_kmh"],
+                "latitude": self.vehicle_state["latitude"],
+                "longitude": self.vehicle_state["longitude"],
+                "windows_status": self.vehicle_state["windows_status"],
+                "doors_locked": self.vehicle_state["doors_locked"],
+                "ac_on": self.vehicle_state["ac_on"],
+                "ac_temp": self.vehicle_state["ac_temp"],
+            }
+            
+            payload = json.dumps(telemetry, ensure_ascii=False)
+            self.client.publish(self.TOPIC_UPLINK_TELEMETRY, payload)
+            
+            await asyncio.sleep(interval)
+    
+    def start(self):
+        """启动Mock车辆"""
+        print(f"[MockVehicle] Connecting to {self.mqtt_broker}:{self.mqtt_port}")
+        self.client.connect(self.mqtt_broker, self.mqtt_port, 60)
+        self.client.loop_start()
+    
+    def stop(self):
+        """停止Mock车辆"""
+        self.client.loop_stop()
+        self.client.disconnect()
+        print(f"[MockVehicle] Disconnected")
+
+
+async def main():
+    """主函数"""
+    mqtt_broker = os.getenv("MQTT_BROKER", "localhost")
+    mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
+    
+    vehicle = MockVehicle(mqtt_broker, mqtt_port)
+    vehicle.start()
+    
+    # 启动遥测发布
+    try:
+        await vehicle.publish_telemetry_loop()
+    except KeyboardInterrupt:
+        print("\n[MockVehicle] Shutting down...")
+        vehicle.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

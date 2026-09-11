@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # MQTT Broker (Mosquitto)
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: cockpit_mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - cockpit_network
+
+  # Redis (optional, for memory store)
+  redis:
+    image: redis:7-alpine
+    container_name: cockpit_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - cockpit_network
+
+  # Mock Hybrid RAG Service
+  mock_rag:
+    build:
+      context: .
+      dockerfile: Dockerfile.rag
+    container_name: cockpit_mock_rag
+    ports:
+      - "8001:8001"
+    environment:
+      - RAG_SERVICE_PORT=8001
+    networks:
+      - cockpit_network
+    command: python -m app.mock_rag.mock_rag_service
+
+  # Smart Cockpit Agent (Cloud Side)
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cockpit_agent
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENT_PORT=8000
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - REDIS_URL=redis://redis:6379/0
+      - HYBRID_RAG_BASE_URL=http://mock_rag:8001
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
+    depends_on:
+      - mosquitto
+      - redis
+      - mock_rag
+    networks:
+      - cockpit_network
+    command: python -m app.main
+
+  # Mock Vehicle (Vehicle Side - MOCK ONLY)
+  mock_vehicle:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cockpit_mock_vehicle
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+    depends_on:
+      - mosquitto
+    networks:
+      - cockpit_network
+    command: python -m app.vehicle_mock.mock_vehicle
+
+networks:
+  cockpit_network:
+    driver: bridge

@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+"""Session manager - handles driver switching and session lifecycle"""
+
+from datetime import datetime
+from typing import Dict, Optional, Any
+import uuid
+
+from ..schemas.context import SessionInfo
+from ..memory import BaseMemoryStore
+
+
+class SessionManager:
+    """会话管理器"""
+    
+    def __init__(self, memory_store: BaseMemoryStore):
+        self.memory_store = memory_store
+        self.active_sessions: Dict[str, SessionInfo] = {}
+    
+    async def create_session(
+        self,
+        driver_id: Optional[str] = None,
+        vehicle_id: Optional[str] = None
+    ) -> SessionInfo:
+        """创建新会话"""
+        session_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat() + "Z"
+        
+        session_info = SessionInfo(
+            session_id=session_id,
+            driver_id=driver_id,
+            vehicle_id=vehicle_id,
+            created_at=now,
+            last_active=now
+        )
+        
+        self.active_sessions[session_id] = session_info
+        
+        # 持久化（可选）
+        await self.memory_store.set_json(
+            f"session:{session_id}",
+            session_info.model_dump(),
+            expire=3600 * 24  # 24小时
+        )
+        
+        return session_info
+    
+    async def get_session(self, session_id: str) -> Optional[SessionInfo]:
+        """获取会话信息"""
+        # 先查内存
+        if session_id in self.active_sessions:
+            return self.active_sessions[session_id]
+        
+        # 再查持久化
+        session_data = await self.memory_store.get_json(f"session:{session_id}")
+        if session_data:
+            session_info = SessionInfo(**session_data)
+            self.active_sessions[session_id] = session_info
+            return session_info
+        
+        return None
+    
+    async def update_session_activity(self, session_id: str):
+        """更新会话活跃时间"""
+        session_info = await self.get_session(session_id)
+        if session_info:
+            session_info.last_active = datetime.utcnow().isoformat() + "Z"
+            await self.memory_store.set_json(
+                f"session:{session_id}",
+                session_info.model_dump(),
+                expire=3600 * 24
+            )
+    
+    async def switch_driver(
+        self,
+        session_id: str,
+        new_driver_id: str
+    ) -> SessionInfo:
+        """切换驾驶员（清空影子状态和记忆切片）"""
+        session_info = await self.get_session(session_id)
+        if not session_info:
+            raise ValueError(f"Session {session_id} not found")
+        
+        # 更新driver_id
+        session_info.driver_id = new_driver_id
+        session_info.last_active = datetime.utcnow().isoformat() + "Z"
+        
+        # 清空影子状态和记忆切片
+        await self.memory_store.delete(f"shadow_state:{session_id}")
+        await self.memory_store.delete(f"memory_slice:{session_id}")
+        
+        # 保存
+        await self.memory_store.set_json(
+            f"session:{session_id}",
+            session_info.model_dump(),
+            expire=3600 * 24
+        )
+        
+        self.active_sessions[session_id] = session_info
+        
+        return session_info
+    
+    async def end_session(self, session_id: str):
+        """结束会话"""
+        if session_id in self.active_sessions:
+            del self.active_sessions[session_id]
+        
+        await self.memory_store.delete(f"session:{session_id}")
+        await self.memory_store.delete(f"shadow_state:{session_id}")
+        await self.memory_store.delete(f"memory_slice:{session_id}")
