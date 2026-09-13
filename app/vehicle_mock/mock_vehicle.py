@@ -37,17 +37,44 @@ class MockVehicle:
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         
-        # 车辆状态
+        # 车辆状态（扩展以支持L1 gate测试）
         self.vehicle_state = {
             "model_id": model_id,
-            "gear": "P",
+            "gear": "P",  # P, R, N, D
             "speed_kmh": 0,
             "latitude": 39.9042,
             "longitude": 116.4074,
-            "windows_status": "closed",
+            # Windows & Openings
+            "windows_status": "closed",  # open/closed/partial
+            "sunroof_status": "closed",  # open/closed/partial
+            "sunshade_status": "closed",
+            # Doors & Security
             "doors_locked": True,
+            "child_lock": False,
+            "trunk_open": False,
+            "frunk_open": False,
+            "charge_port_open": False,
+            # Climate
             "ac_on": False,
             "ac_temp": 24,
+            "ac_fan_speed": 3,
+            "ac_fan_mode": "both",
+            "ac_circulation": "external",
+            "defrost_front": False,
+            "defrost_rear": False,
+            # Comfort
+            "seat_heat_level": 0,  # 0-3
+            "seat_vent_level": 0,  # 0-3
+            "steering_wheel_heat": False,
+            # Lighting
+            "ambient_light": False,
+            "fog_light": False,
+            "position_light": False,
+            "low_beam": False,
+            "headlights_on": False,
+            # Mirrors & Wipers
+            "mirrors_folded": False,
+            "wiper_speed": 0,  # 0-5
         }
     
     def _on_connect(self, client, userdata, flags, rc):

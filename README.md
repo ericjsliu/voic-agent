@@ -701,8 +701,24 @@ curl http://localhost:8000/health
 - `查询今天日程` [L0]
 - `取消下午3点的会议` [L0]
 
-### 🚫 Blacklist (Never Voice)
-- ❌ gear_shift, throttle_control, steering_control, autopilot_enable
+### 🚫 Blacklist (Never Voice Controlled - PRD v1.10)
+
+以下动作**永不**通过语音控制，**不得**出现在任何Capability Profile或UI命令芯片中：
+- ❌ **gear_shift** (档位切换) - 安全关键，禁止语音
+- ❌ **throttle_control** (油门控制) - 安全关键，禁止语音
+- ❌ **steering_control** (方向盘控制) - 安全关键，禁止语音
+- ❌ **autopilot_enable** (自动驾驶启用) - 安全关键，禁止语音
+- ❌ **noa_enable** (NOA启用) - 安全关键，禁止语音
+
+**强制执行**:
+- ✅ Capability Profiles: 在 `blacklist_actions` 中明确列出，NOT in `supported_actions`
+- ✅ Frontend: 不渲染blacklist命令芯片
+- ✅ Planner: 即使LLM生成也会被拒绝
+
+**L-Level对齐 (PRD v1.10)**:
+- **L0**: HVAC (AC/温度/风速/循环/除霜), 座椅舒适 (加热/通风), 氛围灯, 方向盘加热
+- **L1**: 车窗/天窗 (带档位+速度门控), 后备箱打开 (档位门控), 灯光 (雾灯/示宽灯/近光灯), 后视镜, 雨刮
+- **L2**: 车门锁/解锁, 儿童锁, 关闭行驶中大灯等安全相关操作
 
 **车型差异**: Model A标准配置50+命令，Model B高级配置60+命令（含天窗/座椅加热/前备箱/充电口）
 
