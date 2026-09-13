@@ -1,0 +1,137 @@
+.connection-settings {
+  background: rgba(26, 31, 58, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.settings-row-inline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.settings-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.connection-settings label {
+  font-size: 0.75rem;
+  color: #8b92a7;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.connection-settings input,
+.connection-settings select {
+  padding: 0.5rem 0.75rem;
+  background: rgba(10, 14, 39, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e0e6ed;
+  font-size: 0.875rem;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.connection-settings input:focus,
+.connection-settings select:focus {
+  border-color: #00a8ff;
+  box-shadow: 0 0 0 3px rgba(0, 168, 255, 0.1);
+}
+
+.session-info {
+  padding: 0.75rem;
+  background: rgba(0, 168, 255, 0.1);
+  border: 1px solid rgba(0, 168, 255, 0.2);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: #00d4ff;
+}
+
+.session-info code {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+}
+
+.create-session-btn {
+  padding: 0.625rem 1rem;
+  background: linear-gradient(135deg, #00d4ff, #00a8ff);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.create-session-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
+}
+
+.model-hint {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #64b5f6;
+  font-style: italic;
+}
+
+.model-select-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.model-select-container select {
+  flex: 1;
+}
+
+.profile-state {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.profile-state-ready {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.profile-state-switching {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ff9800;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.profile-state-failed {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

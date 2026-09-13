@@ -1,0 +1,180 @@
+.l2-confirm-zone {
+  background: rgba(26, 31, 58, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  transition: all 0.3s;
+}
+
+.l2-confirm-zone.empty {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.l2-confirm-zone.active {
+  border-color: rgba(255, 193, 7, 0.5);
+  background: rgba(255, 193, 7, 0.05);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.2); }
+  50% { box-shadow: 0 0 20px 0 rgba(255, 193, 7, 0.4); }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.empty-state .icon {
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+.confirm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.badge-l2 {
+  padding: 0.375rem 0.75rem;
+  background: rgba(255, 193, 7, 0.2);
+  border: 1px solid rgba(255, 193, 7, 0.4);
+  border-radius: 6px;
+  color: #ffd54f;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.countdown {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ffd54f;
+  font-family: 'Fira Code', monospace;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.countdown.urgent {
+  color: #ff6b6b;
+  animation: pulse-urgent 0.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes pulse-urgent {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.1); }
+}
+
+.confirm-content {
+  margin-bottom: 1rem;
+}
+
+.confirm-content h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #e0e6ed;
+}
+
+.confirm-content p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #a8b5c8;
+  line-height: 1.5;
+}
+
+.progress-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffd54f, #ff6b6b);
+  transition: width 0.1s linear;
+  border-radius: 2px;
+}
+
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.btn-confirm-large,
+.btn-cancel-large {
+  padding: 1rem 1.5rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-confirm-large .icon,
+.btn-cancel-large .icon {
+  font-size: 1.5rem;
+}
+
+.btn-confirm-large {
+  background: linear-gradient(135deg, #00ff88, #00dd77);
+  color: #0a0e27;
+}
+
+.btn-confirm-large:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 255, 136, 0.4);
+}
+
+.btn-cancel-large {
+  background: rgba(255, 68, 68, 0.2);
+  color: #ff6b6b;
+  border: 2px solid rgba(255, 68, 68, 0.4);
+}
+
+.btn-cancel-large:hover:not(:disabled) {
+  background: rgba(255, 68, 68, 0.3);
+  border-color: rgba(255, 68, 68, 0.6);
+  transform: translateY(-2px);
+}
+
+.btn-confirm-large:disabled,
+.btn-cancel-large:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.timeout-notice {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: rgba(255, 68, 68, 0.1);
+  border: 1px solid rgba(255, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 0.875rem;
+  text-align: center;
+  font-weight: 500;
+}
