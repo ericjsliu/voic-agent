@@ -10,6 +10,7 @@ export interface Message {
     branchId: string;
     action: string;
     description?: string;
+    traceId?: string;
   };
   citations?: Array<{
     doc_id: string;

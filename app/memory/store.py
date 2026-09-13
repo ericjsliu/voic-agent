@@ -20,6 +20,13 @@ MEMORY_WHITELIST = {
     "vehicle_config:",  # 车辆配置
     "frequent_destinations:",  # 常用目的地
     "music_prefs:",  # 音乐偏好
+    # 会话热数据（短TTL，允许经 MemoryStore 写入 Redis）
+    "session:",
+    "shadow_state:",
+    "memory_slice:",
+    "capability_profile:",
+    "profile_state:",
+    "entity_buffer:",
 }
 
 
@@ -82,12 +89,18 @@ class RedisMemoryStore(BaseMemoryStore):
             return None
     
     async def set(self, key: str, value: str, expire: Optional[int] = None) -> bool:
-        """两阶段写入：先暂存，commit时批量写入"""
-        if not self._is_whitelisted(key):
-            print(f"Key {key} not in whitelist, skipping persistent write")
+        """热路径立即写入 Redis；白名单键额外进入 pending 供 commit 批处理"""
+        try:
+            if expire:
+                self.client.setex(key, expire, value)
+            else:
+                self.client.set(key, value)
+        except Exception as e:
+            print(f"Redis set error: {e}")
             return False
-        
-        self._pending_writes[key] = (value, expire)
+
+        if self._is_whitelisted(key):
+            self._pending_writes[key] = (value, expire)
         return True
     
     async def commit(self) -> bool:

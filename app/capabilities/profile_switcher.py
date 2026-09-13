@@ -42,7 +42,9 @@ class ProfileSwitchingManager:
         """获取当前profile状态"""
         state = self.redis.get(self._get_state_key(session_id))
         if state:
-            return ProfileState(state.decode('utf-8'))
+            if isinstance(state, bytes):
+                state = state.decode('utf-8')
+            return ProfileState(state)
         return ProfileState.READY  # 默认ready
     
     def is_profile_ready(self, session_id: str) -> bool:

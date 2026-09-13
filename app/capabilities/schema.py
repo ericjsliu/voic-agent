@@ -51,6 +51,8 @@ class CapabilityProfile(BaseModel):
     """车辆能力档案"""
     model_id: str
     model_name: str
+    display_name: Optional[str] = None
+    rag_item_names: Optional[List[str]] = None
     hardware_option: Optional[str] = None
     config_hash: Optional[str] = None
     

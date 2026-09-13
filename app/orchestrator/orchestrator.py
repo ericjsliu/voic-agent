@@ -93,6 +93,8 @@ class Orchestrator:
         # Audit logger for event tracking (P0 exit #5)
         self.audit_logger = audit_logger
         self.current_session_id: Optional[str] = None
+        self.capability_profile = None  # set by main before execute
+        self.item_names = None  # RAG 车型显示名，如 ["致享"]
     
     async def execute_taskgraph(
         self,
@@ -334,33 +336,59 @@ class Orchestrator:
                 "branch_id": task.branch_id,
                 "trace_id": self.current_trace_id,  # P0 exit #5: pass trace_id to adapters
                 "session_id": self.current_session_id,  # P0 exit #5: pass session_id to adapters
+                "capability_profile": getattr(self, "capability_profile", None),
+                "item_names": getattr(self, "item_names", None),
             }
             
             result = await adapter.execute(step, context)
             
-            # 特殊处理：chitchat立即完成
+            # 特殊处理：chitchat立即完成（正文已在 TaskGraph.action.response）
             if step.domain == DomainType.CHITCHAT:
                 step_state.status = StepStatus.COMPLETED
                 step_state.result = result
                 self.task_states[task.task_id].completed_steps.add(step.step_id)
-                return
-            
-            # 特殊处理：knowledge立即返回结果
-            if step.domain == DomainType.KNOWLEDGE:
-                step_state.status = StepStatus.COMPLETED
-                step_state.result = result
-                self.task_states[task.task_id].completed_steps.add(step.step_id)
-                
-                # 发送写回
                 if writeback_callback:
                     writeback = WritebackEnvelope(
                         task_id=task.task_id,
                         step_id=step.step_id,
                         branch_id=task.branch_id,
-                        trace_id=self.current_trace_id,
+                        trace_id=self.current_trace_id or "",
                         event=WritebackEvent.KNOWLEDGE_DONE,
-                        status=WritebackStatus.ACCEPTED if result.get("status") == "success" else WritebackStatus.FAILED,
-                        reason=result.get("error"),
+                        status=WritebackStatus.ACCEPTED,
+                        reason=result.get("response") or getattr(step.action, "response", None),
+                        ts=datetime.utcnow().isoformat() + "Z"
+                    )
+                    await writeback_callback(writeback)
+                return
+            
+            # knowledge / calendar：本地完成并推送可播文本；默认 MQTT 零帧
+            if step.domain in (DomainType.KNOWLEDGE, DomainType.CALENDAR):
+                step_state.status = StepStatus.COMPLETED
+                step_state.result = result
+                self.task_states[task.task_id].completed_steps.add(step.step_id)
+                if writeback_callback:
+                    spoken = (
+                        result.get("answer")
+                        or result.get("response")
+                        or result.get("error")
+                        or ""
+                    )
+                    event = (
+                        WritebackEvent.KNOWLEDGE_DONE
+                        if step.domain == DomainType.KNOWLEDGE
+                        else WritebackEvent.CALENDAR_ACK
+                    )
+                    status = WritebackStatus.ACCEPTED
+                    if result.get("status") in ("not_found", "failed"):
+                        status = WritebackStatus.FAILED
+                    writeback = WritebackEnvelope(
+                        task_id=task.task_id,
+                        step_id=step.step_id,
+                        branch_id=task.branch_id,
+                        trace_id=self.current_trace_id or "",
+                        event=event,
+                        status=status,
+                        reason=spoken,
                         ts=datetime.utcnow().isoformat() + "Z"
                     )
                     await writeback_callback(writeback)

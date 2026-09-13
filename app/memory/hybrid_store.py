@@ -24,6 +24,40 @@ class HybridMemoryStore(BaseMemoryStore):
     def __init__(self, redis_store: BaseMemoryStore, pg_store):
         self.redis = redis_store
         self.pg_store = pg_store
+
+    async def get(self, key: str) -> Optional[str]:
+        """热路径读 Redis；白名单 miss 时从 PG 取 JSON 再缓存"""
+        value = await self.redis.get(key)
+        if value is not None:
+            return value
+        if self.pg_store and self._is_whitelist_key(key):
+            data = self._load_from_pg(key)
+            if data is not None:
+                import json
+                raw = json.dumps(data, ensure_ascii=False)
+                await self.redis.set(key, raw)
+                return raw
+        return None
+
+    async def set(self, key: str, value: str, expire: Optional[int] = None) -> bool:
+        """写 Redis；白名单同步写 PG"""
+        ok = await self.redis.set(key, value, expire)
+        if self.pg_store and self._is_whitelist_key(key):
+            try:
+                import json
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    self._save_to_pg(key, parsed)
+            except Exception as e:
+                print(f"[HybridMemoryStore] Error parsing value for PG: {e}")
+        return ok
+
+    async def exists(self, key: str) -> bool:
+        if await self.redis.exists(key):
+            return True
+        if self.pg_store and self._is_whitelist_key(key):
+            return self._load_from_pg(key) is not None
+        return False
     
     async def get_json(self, key: str) -> Optional[Dict]:
         """优先从Redis读取，如果是白名单则fallback到PostgreSQL"""
@@ -47,9 +81,9 @@ class HybridMemoryStore(BaseMemoryStore):
         if self.pg_store and self._is_whitelist_key(key):
             self._save_to_pg(key, value)
     
-    async def delete(self, key: str):
+    async def delete(self, key: str) -> bool:
         """删除（仅Redis，PostgreSQL保留历史）"""
-        await self.redis.delete(key)
+        return await self.redis.delete(key)
     
     def _is_whitelist_key(self, key: str) -> bool:
         """判断是否是白名单数据"""

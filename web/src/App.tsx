@@ -104,17 +104,31 @@ function App() {
       } else if (data.type === 'writeback') {
         const wb = data.data
         setWritebacks(prev => [wb, ...prev].slice(0, 30))
+
+        // 手册 / 日程 / 闲聊正文回写
+        if (wb.event === 'knowledge_done' || wb.event === 'calendar_ack') {
+          if (wb.reason) {
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(),
+              type: 'assistant',
+              content: wb.reason,
+              timestamp: new Date().toISOString(),
+              citations: wb.event === 'knowledge_done' ? [{ doc_id: 'hybrid_rag', section: '用车问答' }] : undefined
+            }])
+          }
+        }
         
         // 处理L2确认结果
         if (wb.event === 'confirm_result') {
           if (wb.status === 'accepted' || wb.status === 'declined' || wb.status === 'timeout') {
             setPendingL2(null)
             
-            const statusText = {
+            const statusMap: Record<string, string> = {
               'accepted': '✓ 已确认执行',
               'declined': '✕ 已取消操作',
               'timeout': '⏱️ 确认超时 - 已取消'
-            }[wb.status] || '处理完成'
+            }
+            const statusText = statusMap[wb.status] || '处理完成'
             
             setMessages(prev => [...prev, {
               id: Date.now().toString(),
@@ -218,6 +232,22 @@ function App() {
     
     const steps = task.steps || []
     if (steps.length === 0) return '好的'
+
+    // 闲聊：直接播正文，禁止空「好的，正在闲聊回复」
+    const chitchat = steps.find((s: any) => s.domain === 'chitchat')
+    if (chitchat?.action?.response) {
+      return chitchat.action.response
+    }
+
+    const knowledge = steps.find((s: any) => s.domain === 'knowledge')
+    if (knowledge) {
+      return '正在查询手册…'
+    }
+
+    const calendar = steps.find((s: any) => s.domain === 'calendar')
+    if (calendar) {
+      return '正在查询日程…'
+    }
     
     const descriptions = steps.map((s: any) => 
       s.description || s.action?.action || '执行任务'
@@ -292,7 +322,7 @@ function App() {
         throw new Error(error.detail || '切换失败')
       }
       
-      const data = await response.json()
+      await response.json()
       setConfig(prev => ({ ...prev, vehicleModel: newModelId }))
       
       // WebSocket会收到profile_state消息自动更新状态
@@ -315,12 +345,12 @@ function App() {
         <h1>🚗 Smart Cockpit Voice Agent</h1>
         <div className="connection-status">
           <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
-          {connected ? 'Connected' : 'Disconnected'}
+          {connected ? 'Connected' : (config.sessionId ? 'Disconnected' : '未建会话')}
         </div>
       </header>
       
       <div className="app-body">
-        <div className="left-panel">
+        <aside className="left-panel">
           <ConnectionSettings 
             config={config}
             onChange={setConfig}
@@ -336,21 +366,24 @@ function App() {
             pendingConfirm={pendingL2}
             onConfirm={handleL2Confirm}
           />
+        </aside>
+
+        <main className="center-panel">
           <ChatPanel 
             messages={messages}
             onSend={handleSendMessage}
             onL2Confirm={handleL2Confirm}
             capabilityProfile={capabilityProfile || undefined}
           />
-        </div>
+        </main>
         
-        <div className="right-panel">
+        <aside className="right-panel">
           <InfoPanel 
             taskGraph={currentTaskGraph}
             writebacks={writebacks}
             telemetry={telemetry}
           />
-        </div>
+        </aside>
       </div>
     </div>
   )

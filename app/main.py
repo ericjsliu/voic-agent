@@ -131,11 +131,28 @@ def on_mqtt_message(client, userdata, msg):
 
 
 def publish_taskgraph(taskgraph: TaskGraph):
-    """发布TaskGraph到MQTT下行主题"""
-    if app_state.mqtt_client and app_state.mqtt_client.is_connected():
-        payload = taskgraph.model_dump_json(indent=2)
-        app_state.mqtt_client.publish("cockpit/agent/taskgraph", payload)
-        print(f"[Agent] Published TaskGraph to MQTT")
+    """发布TaskGraph到MQTT下行主题（knowledge/chitchat/calendar查询不上行）"""
+    if not (app_state.mqtt_client and app_state.mqtt_client.is_connected()):
+        return
+    # 过滤纯文本域步骤，避免车端看到执行帧
+    from .schemas.taskgraph import DomainType
+    text_only = {DomainType.KNOWLEDGE, DomainType.CHITCHAT, DomainType.CALENDAR}
+    filtered_tasks = []
+    for task in taskgraph.tasks:
+        exec_steps = [s for s in task.steps if s.domain not in text_only]
+        if not exec_steps:
+            continue
+        filtered = task.model_copy(deep=True)
+        filtered.steps = exec_steps
+        filtered_tasks.append(filtered)
+    if not filtered_tasks:
+        print("[Agent] Skip MQTT publish: no vehicle/nav/media steps")
+        return
+    filtered_tg = taskgraph.model_copy(deep=True)
+    filtered_tg.tasks = filtered_tasks
+    payload = filtered_tg.model_dump_json(indent=2)
+    app_state.mqtt_client.publish("cockpit/agent/taskgraph", payload)
+    print(f"[Agent] Published TaskGraph to MQTT ({sum(len(t.steps) for t in filtered_tasks)} exec steps)")
 
 
 # ==================== 生命周期 ====================
@@ -164,7 +181,18 @@ async def lifespan(app: FastAPI):
     app_state.memory_store = get_memory_store(pg_store=app_state.pg_store)
     
     # Entity Buffer (Redis hot cache)
-    redis_client = app_state.memory_store.redis if hasattr(app_state.memory_store, 'redis') else None
+    # ProfileSwitcher/EntityBuffer need raw redis-py client (setex/get), not MemoryStore wrapper
+    def _raw_redis_client(store):
+        if store is None:
+            return None
+        if hasattr(store, 'client') and store.client is not None:
+            return store.client
+        inner = getattr(store, 'redis', None)
+        if inner is not None and hasattr(inner, 'client'):
+            return inner.client
+        return None
+
+    redis_client = _raw_redis_client(app_state.memory_store)
     if redis_client:
         app_state.entity_buffer = EntityBuffer(redis_client)
         print("[Agent] Entity Buffer initialized")
@@ -401,6 +429,15 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     
     # 获取能力档案
     capability_profile = await app_state.session_manager.get_capability_profile(session_info.session_id)
+
+    app_state.orchestrator.capability_profile = capability_profile
+    # 真 RAG 车型名（手册语料）
+    rag_names = None
+    if capability_profile is not None:
+        rag_names = getattr(capability_profile, 'rag_item_names', None)
+        if not rag_names and getattr(capability_profile, 'display_name', None):
+            rag_names = [capability_profile.display_name]
+    app_state.orchestrator.item_names = rag_names or ['致享']
     
     # Audit: planner_start
     planner_start = datetime.utcnow()

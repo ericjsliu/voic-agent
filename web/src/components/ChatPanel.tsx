@@ -5,7 +5,7 @@ import './ChatPanel.css'
 interface Props {
   messages: Message[];
   onSend: (text: string) => void;
-  onL2Confirm: (taskId: string, stepId: string, branchId: string, accepted: boolean) => void;
+  onL2Confirm: (taskId: string, stepId: string, branchId: string, traceId: string | undefined, accepted: boolean) => void;
   capabilityProfile?: {
     model_id: string;
     model_name: string;
@@ -13,8 +13,19 @@ interface Props {
   };
 }
 
+type DomainCommand = {
+  text: string;
+  actions: string[];
+  level?: 'L0' | 'L1' | 'L2';
+};
+
+type DomainGroup = {
+  label: string;
+  commands: DomainCommand[];
+};
+
 // 领域分组命令芯片 - 覆盖PRD v1.10完整目录
-const DOMAIN_COMMANDS = {
+const DOMAIN_COMMANDS: Record<string, DomainGroup> = {
   vehicle: {
     label: '🚗 车辆控制',
     commands: [
@@ -180,6 +191,7 @@ export default function ChatPanel({ messages, onSend, onL2Confirm, capabilityPro
                       msg.l2Pending!.taskId,
                       msg.l2Pending!.stepId,
                       msg.l2Pending!.branchId,
+                      msg.l2Pending!.traceId,
                       true
                     )}
                   >
@@ -191,6 +203,7 @@ export default function ChatPanel({ messages, onSend, onL2Confirm, capabilityPro
                       msg.l2Pending!.taskId,
                       msg.l2Pending!.stepId,
                       msg.l2Pending!.branchId,
+                      msg.l2Pending!.traceId,
                       false
                     )}
                   >

@@ -36,8 +36,9 @@ services:
     networks:
       - cockpit_network
 
-  # Mock Hybrid RAG Service
+  # Mock Hybrid RAG Service (optional: docker compose --profile mock-rag up -d)
   mock_rag:
+    profiles: ["mock-rag"]
     build:
       context: .
       dockerfile: Dockerfile.rag
@@ -64,16 +65,18 @@ services:
       - MQTT_PORT=1883
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://cockpit:cockpit@postgres:5432/cockpit_agent
-      - HYBRID_RAG_BASE_URL=http://mock_rag:8001
+      - HYBRID_RAG_BASE_URL=${HYBRID_RAG_BASE_URL:-http://host.docker.internal:8001}
+      - HYBRID_RAG_PATH=${HYBRID_RAG_PATH:-/query/hybrid_rerank}
       # LLM配置 (Alibaba DashScope OpenAI-compatible)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_API_BASE=${OPENAI_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - LLM_DEFAULT_MODEL=${LLM_DEFAULT_MODEL:-qwen-turbo}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - mosquitto
       - redis
       - postgres
-      - mock_rag
     networks:
       - cockpit_network
     command: python -m app.main

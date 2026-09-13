@@ -45,11 +45,9 @@ class KnowledgeAdapter(BaseDomainAdapter):
         citations = result.get("citations", [])
         citation_count = result.get("citation_count", len(citations))
         
-        # **Citation Enforcement**: 无引用则不能作为手册权威回答
-        if citation_count == 0:
-            print(f"[KnowledgeAdapter] No citations found for query: {action.query}")
-            
-            # Emit audit event: rag_miss (P0 exit #5)
+        # PRD v1.11 弱出处：有 answer 即可；无 answer 才拒答（禁止掉 chitchat）
+        if not (answer or "").strip():
+            print(f"[KnowledgeAdapter] RAG miss (empty answer): {action.query}")
             if self.audit_logger:
                 trace_id = context.get("trace_id") or context.get("task_id", "")
                 if trace_id:
@@ -64,18 +62,25 @@ class KnowledgeAdapter(BaseDomainAdapter):
                             "retrieval_mode": result.get("retrieval_mode", "unknown")
                         }
                     )
-            
-            # 允许返回answer但带警告（无结构化引用）
             return {
                 "step_id": step.step_id,
                 "domain": "knowledge",
                 "action": "query_manual",
-                "status": "no_citations",
-                "answer": answer or "抱歉，未能在用户手册中找到带引用的可靠信息",
+                "status": "not_found",
+                "answer": "抱歉，手册中未找到相关信息。",
                 "citations": [],
-                "warning": "⚠️ 无结构化引用，建议人工核实",
                 "error": None
             }
+
+        if citation_count == 0:
+            citations = [{
+                "source": "hybrid_rag",
+                "title": "用车问答",
+                "ref": result.get("session_id") or session_id,
+                "doc_id": "hybrid_rag",
+            }]
+            citation_count = 1
+            print(f"[KnowledgeAdapter] Weak citation injected for query: {action.query}")
         
         # 有引用：正常返回
         response = {
@@ -109,37 +114,45 @@ class KnowledgeAdapter(BaseDomainAdapter):
         print(f"[KnowledgeAdapter] Query successful with {citation_count} citations")
         return response
     
+    # 能力档案 model_id / 英文名 → 真 RAG 车型显示名
+    _RAG_NAME_MAP = {
+        "model_a": ["致享"],
+        "model_b": ["致享"],
+        "ModelA": ["致享"],
+        "ModelB": ["致享"],
+        "Model A (Standard)": ["致享"],
+        "Model B (Premium)": ["致享"],
+    }
+
     def _get_item_names(self, context: Dict[str, Any], action: KnowledgeAction) -> List[str]:
-        """获取车型名称列表（Real API必需）
-        
-        优先级：
-        1. context中的vehicle_model_name / item_names
-        2. context中的capability_profile.model_name
-        3. action中的model_filter
-        4. fallback: ["通用车型"]
-        """
-        # 从context获取（最准确）
-        if "vehicle_model_name" in context:
-            return [context["vehicle_model_name"]]
-        
-        if "item_names" in context:
-            return context["item_names"]
-        
-        # 从capability_profile获取
-        if "capability_profile" in context:
-            profile = context["capability_profile"]
-            if hasattr(profile, "model_name"):
-                return [profile.model_name]
-            elif isinstance(profile, dict) and "model_name" in profile:
-                return [profile["model_name"]]
-        
-        # 从action获取（兼容旧版）
+        """获取真 RAG 的 item_names（须用手册语料车型名，如「致享」）"""
+        if context.get("item_names"):
+            return list(context["item_names"])
+        if context.get("vehicle_model_name"):
+            name = context["vehicle_model_name"]
+            return self._RAG_NAME_MAP.get(name, [name])
+
+        profile = context.get("capability_profile")
+        if profile is not None:
+            rag = getattr(profile, "rag_item_names", None)
+            if not rag and isinstance(profile, dict):
+                rag = profile.get("rag_item_names")
+            if rag:
+                return list(rag)
+            display = getattr(profile, "display_name", None) or (profile.get("display_name") if isinstance(profile, dict) else None)
+            if display:
+                return [display]
+            mid = getattr(profile, "model_id", None) or (profile.get("model_id") if isinstance(profile, dict) else None)
+            mname = getattr(profile, "model_name", None) or (profile.get("model_name") if isinstance(profile, dict) else None)
+            for key in (mid, mname):
+                if key and key in self._RAG_NAME_MAP:
+                    return self._RAG_NAME_MAP[key]
+
         if action.model_filter:
-            return [action.model_filter]
-        
-        # Fallback
-        print("[KnowledgeAdapter] WARNING: No vehicle model found, using generic")
-        return ["通用车型"]
+            return self._RAG_NAME_MAP.get(action.model_filter, [action.model_filter])
+
+        print("[KnowledgeAdapter] WARNING: fallback item_names=致享")
+        return ["致享"]
     
     def _generate_answer_from_hits(self, query: str, hits: List[RAGHit]) -> str:
         """从检索结果生成答案（简单拼接，真实场景可用LLM生成）"""

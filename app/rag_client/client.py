@@ -216,22 +216,35 @@ class HybridRAGClient:
                 item_names=item_names
             )
             
-            # 转换done_list到citations格式
+            # 转换done_list；无页码时弱出处（PRD v1.11）
             citations = []
             for item in result.get("done_list", []):
-                citation = {
-                    "doc_id": item.get("doc_id", "unknown"),
-                    "section": item.get("section"),
-                    "page": item.get("page")
-                }
-                # 过滤None值
-                citations.append({k: v for k, v in citation.items() if v is not None})
+                if isinstance(item, dict):
+                    citation = {
+                        "doc_id": item.get("doc_id", "hybrid_rag"),
+                        "section": item.get("section"),
+                        "page": item.get("page"),
+                        "source": "hybrid_rag",
+                    }
+                    citations.append({k: v for k, v in citation.items() if v is not None})
+                else:
+                    citations.append({"source": "hybrid_rag", "ref": str(item), "doc_id": "hybrid_rag"})
+
+            answer = result.get("answer", "") or ""
+            if answer.strip() and not citations:
+                citations = [{
+                    "source": "hybrid_rag",
+                    "title": "用车问答",
+                    "ref": result.get("session_id") or session_id,
+                    "doc_id": "hybrid_rag",
+                }]
             
             return {
-                "answer": result.get("answer", ""),
+                "answer": answer,
                 "citations": citations,
                 "retrieval_mode": result.get("retrieval_mode", "hybrid_rerank"),
-                "citation_count": len(citations)
+                "citation_count": len(citations),
+                "session_id": result.get("session_id") or session_id,
             }
         
         else:

@@ -3,28 +3,61 @@
   "model_name": "Model B (Premium)",
   "description": "高级配置车型 - 完整功能集（包含天窗、座椅加热/通风、方向盘加热等）",
   "supported_actions": [
-    "window_open", "window_close",
-    "sunroof_open", "sunroof_close",
-    "sunshade_open", "sunshade_close",
-    "door_lock", "door_unlock",
+    "window_open",
+    "window_close",
+    "sunroof_open",
+    "sunroof_close",
+    "sunshade_open",
+    "sunshade_close",
+    "door_lock",
+    "door_unlock",
     "child_lock",
-    "trunk_open", "frunk_open", "charge_port_open",
-    "ac_power", "set_ac_temp", "set_ac_fan_mode", "set_ac_fan_speed", "set_ac_circulation",
-    "defrost_front", "defrost_rear",
-    "seat_heat", "seat_vent",
+    "trunk_open",
+    "frunk_open",
+    "charge_port_open",
+    "ac_power",
+    "set_ac_temp",
+    "set_ac_fan_mode",
+    "set_ac_fan_speed",
+    "set_ac_circulation",
+    "defrost_front",
+    "defrost_rear",
+    "seat_heat",
+    "seat_vent",
     "steering_wheel_heat",
     "ambient_light",
-    "fog_light", "position_light", "low_beam",
+    "fog_light",
+    "position_light",
+    "low_beam",
     "mirror_fold",
     "wiper_speed",
-    "set_nav_goal", "cancel_nav", "add_via", "remove_via", "set_route_prefs",
-    "query_eta", "query_remaining_distance", "query_next_maneuver",
-    "media_play", "media_pause", "media_next", "media_prev",
-    "volume_up", "volume_down", "mute",
-    "play_by_artist", "play_by_title", "play_playlist", "play_radio", "play_favorites", "play_random",
+    "set_nav_goal",
+    "cancel_nav",
+    "add_via",
+    "remove_via",
+    "set_route_prefs",
+    "query_eta",
+    "query_remaining_distance",
+    "query_next_maneuver",
+    "media_play",
+    "media_pause",
+    "media_next",
+    "media_prev",
+    "volume_up",
+    "volume_down",
+    "mute",
+    "play_by_artist",
+    "play_by_title",
+    "play_playlist",
+    "play_radio",
+    "play_favorites",
+    "play_random",
     "switch_source",
-    "create_event", "query_events", "cancel_event",
-    "query_manual", "chitchat"
+    "create_event",
+    "query_events",
+    "cancel_event",
+    "query_manual",
+    "chitchat"
   ],
   "action_capabilities": {
     "window_open": {
@@ -32,7 +65,11 @@
       "supported": true,
       "level": "L1",
       "param_ranges": {
-        "percent": {"min": 0, "max": 100, "step": 10}
+        "percent": {
+          "min": 0,
+          "max": 100,
+          "step": 10
+        }
       },
       "requires_stationary": false,
       "description": "打开车窗"
@@ -49,7 +86,11 @@
       "supported": true,
       "level": "L1",
       "param_ranges": {
-        "percent": {"min": 0, "max": 100, "step": 10}
+        "percent": {
+          "min": 0,
+          "max": 100,
+          "step": 10
+        }
       },
       "requires_stationary": true,
       "description": "打开天窗"
@@ -126,7 +167,11 @@
       "supported": true,
       "level": "L0",
       "param_ranges": {
-        "temperature": {"min": 16, "max": 30, "step": 0.5}
+        "temperature": {
+          "min": 16,
+          "max": 30,
+          "step": 0.5
+        }
       },
       "description": "设置空调温度"
     },
@@ -141,7 +186,10 @@
       "supported": true,
       "level": "L0",
       "param_ranges": {
-        "speed": {"min": 1, "max": 7}
+        "speed": {
+          "min": 1,
+          "max": 7
+        }
       },
       "description": "设置空调风速"
     },
@@ -168,7 +216,10 @@
       "supported": true,
       "level": "L0",
       "param_ranges": {
-        "level": {"min": 0, "max": 3}
+        "level": {
+          "min": 0,
+          "max": 3
+        }
       },
       "description": "座椅加热"
     },
@@ -177,7 +228,10 @@
       "supported": true,
       "level": "L0",
       "param_ranges": {
-        "level": {"min": 0, "max": 3}
+        "level": {
+          "min": 0,
+          "max": 3
+        }
       },
       "description": "座椅通风"
     },
@@ -222,7 +276,10 @@
       "supported": true,
       "level": "L1",
       "param_ranges": {
-        "speed": {"min": 0, "max": 5}
+        "speed": {
+          "min": 0,
+          "max": 5
+        }
       },
       "description": "雨刮速度"
     },
@@ -420,5 +477,9 @@
     "autopilot_enable",
     "noa_enable"
   ],
-  "version": "1.0"
+  "version": "1.0",
+  "rag_item_names": [
+    "致享"
+  ],
+  "display_name": "致享"
 }

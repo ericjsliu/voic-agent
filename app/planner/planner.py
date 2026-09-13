@@ -16,6 +16,7 @@ except ImportError:
 from ..schemas.taskgraph import TaskGraph, Task, Step, DomainType, ActionLevel
 from ..schemas.context import DialogueContext
 from ..adapters.navigation import NavigationAdapter
+from .intent_gate import classify_intent, ForcedDomain
 
 
 class Planner:
@@ -73,11 +74,20 @@ class Planner:
         # 确保有trace_id（HOTFIX: 生产500）
         if not trace_id:
             trace_id = str(uuid.uuid4())
+
+        # PRD v1.11: 规则短路优先于 LLM（手册/日程/明确闲聊）
+        gated = classify_intent(user_utterance)
+        if gated is not None:
+            print(f"[Planner] Intent gate -> {gated.domain.value} ({gated.reason})")
+            return await self._plan_forced_domain(user_utterance, context, trace_id, gated)
         
         # 尝试LLM规划
         if self.llm_client:
             try:
-                return await self._plan_with_llm(user_utterance, context, trace_id)
+                tg = await self._plan_with_llm(user_utterance, context, trace_id)
+                # 双保险：LLM 若把手册/日程判成 chitchat，纠正
+                tg = self._enforce_domain_guardrails(user_utterance, tg, context, trace_id)
+                return tg
             except Exception as e:
                 print(f"LLM planning failed: {e}, falling back to rule-based")
         
@@ -283,8 +293,8 @@ class Planner:
             )
             steps.append(step)
         
-        # 规则6: 知识查询
-        if any(keyword in utterance_lower for keyword in ["怎么", "如何", "手册", "说明书"]):
+        # 规则6: 知识查询（扩大故障/异响等）
+        if any(k in user_utterance for k in ["怎么", "如何", "手册", "说明书", "异响", "故障", "指示灯", "是否表示", "噪音"]):
             from ..schemas.taskgraph import KnowledgeAction
             step = Step(
                 step_id=f"step_{len(steps)+1}",
@@ -297,18 +307,29 @@ class Planner:
                 description="查询手册"
             )
             steps.append(step)
+
+        # 规则6b: 日历
+        if any(k in user_utterance for k in ["日程", "行程", "会议", "安排"]) and any(
+            k in user_utterance for k in ["查询", "查看", "看看", "今天", "明日", "明天", "今日", "下个", "下一个"]
+        ):
+            from ..schemas.taskgraph import CalendarAction
+            step = Step(
+                step_id=f"step_{len(steps)+1}",
+                domain=DomainType.CALENDAR,
+                action=CalendarAction(action="query_events", level=ActionLevel.L0),
+                description="查询日程"
+            )
+            steps.append(step)
         
-        # 规则7: 如果没有匹配，返回闲聊
+        # 规则7: 如果没有匹配，返回闲聊（要有实质正文）
         if not steps:
             from ..schemas.taskgraph import ChitchatAction
+            response = self._chitchat_response(user_utterance)
             step = Step(
                 step_id="step_1",
                 domain=DomainType.CHITCHAT,
-                action=ChitchatAction(
-                    response="好的，我明白了。还有什么我可以帮您的吗？",
-                    level=ActionLevel.L0
-                ),
-                description="闲聊回复"
+                action=ChitchatAction(response=response, level=ActionLevel.L0),
+                description=response
             )
             steps.append(step)
         
@@ -454,3 +475,86 @@ class Planner:
                     if action.action == "nav_to":
                         if not action.goal or action.goal.latitude == 0:
                             raise ValueError(f"Unresolved POI in step {step.step_id}")
+
+
+    def _chitchat_response(self, utterance: str) -> str:
+        """闲聊必须有可播正文，禁止空「好的」。"""
+        if any(k in utterance for k in ["笑话", "段子"]):
+            return (
+                "好的，给你讲个短笑话：导航说前方右转，结果我右转进了停车场。"
+                "它还挺诚实——至少没让我开进河里。"
+            )
+        if any(k in utterance for k in ["你好", "您好", "嗨", "在吗"]):
+            return "在的，需要我帮你控车、导航、放歌，还是查手册、看日程？"
+        return "我在听。你可以让我开车窗、导航、放歌，也可以问手册或查今天的日程。"
+
+    async def _plan_forced_domain(self, user_utterance, context, trace_id, gated):
+        from ..schemas.taskgraph import KnowledgeAction, CalendarAction, ChitchatAction
+        session_id = context.session_info.session_id
+        task_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        if gated.domain == ForcedDomain.KNOWLEDGE:
+            step = Step(
+                step_id="step_1",
+                domain=DomainType.KNOWLEDGE,
+                action=KnowledgeAction(action="query_manual", query=user_utterance, level=ActionLevel.L0),
+                description="查询手册",
+            )
+        elif gated.domain == ForcedDomain.CALENDAR:
+            step = Step(
+                step_id="step_1",
+                domain=DomainType.CALENDAR,
+                action=CalendarAction(action="query_events", level=ActionLevel.L0),
+                description="查询日程",
+            )
+        else:
+            response = self._chitchat_response(user_utterance)
+            step = Step(
+                step_id="step_1",
+                domain=DomainType.CHITCHAT,
+                action=ChitchatAction(response=response, level=ActionLevel.L0),
+                description=response,
+            )
+
+        task = Task(task_id=task_id, branch_id="main", steps=[step], user_intent=user_utterance)
+        return TaskGraph(tasks=[task], session_id=session_id, timestamp=timestamp, trace_id=trace_id)
+
+    def _enforce_domain_guardrails(self, user_utterance, taskgraph, context, trace_id):
+        """LLM 输出兜底：手册/日程不得落成 chitchat。"""
+        gated = classify_intent(user_utterance)
+        if gated is None or not taskgraph.tasks:
+            return taskgraph
+        steps = taskgraph.tasks[0].steps
+        domains = {s.domain for s in steps}
+        if gated.domain == ForcedDomain.KNOWLEDGE and DomainType.KNOWLEDGE not in domains:
+            print("[Planner] Guardrail: forcing knowledge over LLM misroute")
+            from ..schemas.taskgraph import KnowledgeAction
+            taskgraph.tasks[0].steps = [Step(
+                step_id="step_1",
+                domain=DomainType.KNOWLEDGE,
+                action=KnowledgeAction(action="query_manual", query=user_utterance, level=ActionLevel.L0),
+                description="查询手册",
+            )]
+        elif gated.domain == ForcedDomain.CALENDAR and DomainType.CALENDAR not in domains:
+            print("[Planner] Guardrail: forcing calendar over LLM misroute")
+            from ..schemas.taskgraph import CalendarAction
+            taskgraph.tasks[0].steps = [Step(
+                step_id="step_1",
+                domain=DomainType.CALENDAR,
+                action=CalendarAction(action="query_events", level=ActionLevel.L0),
+                description="查询日程",
+            )]
+        elif gated.domain == ForcedDomain.CHITCHAT:
+            from ..schemas.taskgraph import ChitchatAction
+            for s in steps:
+                if s.domain == DomainType.CHITCHAT:
+                    resp = getattr(s.action, "response", "") or ""
+                    if (not resp) or (resp.strip() in {"好的", "好的。", "好"}):
+                        s.action = ChitchatAction(
+                            response=self._chitchat_response(user_utterance),
+                            level=ActionLevel.L0,
+                        )
+                        s.description = s.action.response
+        return taskgraph
+
