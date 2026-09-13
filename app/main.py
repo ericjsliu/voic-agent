@@ -596,6 +596,23 @@ async def get_profile_state(session_id: str):
     }
 
 
+@app.get("/session/{session_id}/capability_profile")
+async def get_capability_profile_endpoint(session_id: str):
+    """获取当前会话的Capability Profile（UI chips灰显用）"""
+    profile = await app_state.session_manager.get_capability_profile(session_id)
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Capability profile not found for session")
+    
+    # 返回简化版本（UI只需要model_id, model_name, supported_actions）
+    return {
+        "model_id": profile.model_id,
+        "model_name": profile.model_name,
+        "supported_actions": profile.supported_actions,
+        "features": profile.features.model_dump() if profile.features else {}
+    }
+
+
 @app.get("/trace/{trace_id}")
 async def get_trace_events(trace_id: str):
     """查询trace_id的审计事件（PRD v1.9 / detailed-v2.2）

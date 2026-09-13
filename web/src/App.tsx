@@ -31,17 +31,37 @@ function App() {
     modelFilter: 'ModelA',
     versionFilter: '2024'
   })
+  const [capabilityProfile, setCapabilityProfile] = useState<{
+    model_id: string;
+    model_name: string;
+    supported_actions: string[];
+  } | null>(null)
   
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
     if (config.sessionId) {
       connectWebSocket(config.sessionId)
+      fetchCapabilityProfile(config.sessionId)
     }
     return () => {
       wsRef.current?.close()
     }
   }, [config.sessionId])
+
+  // 获取当前会话的Capability Profile
+  const fetchCapabilityProfile = async (sessionId: string) => {
+    try {
+      const response = await fetch(`${config.baseUrl}/session/${sessionId}/capability_profile`)
+      if (response.ok) {
+        const profile = await response.json()
+        setCapabilityProfile(profile)
+        console.log('[UI] Loaded capability profile:', profile.model_id)
+      }
+    } catch (error) {
+      console.error('[UI] Failed to fetch capability profile:', error)
+    }
+  }
 
   const connectWebSocket = (sessionId: string) => {
     const wsUrl = config.baseUrl.replace('http', 'ws') + `/ws/${sessionId}`
@@ -108,6 +128,11 @@ function App() {
         // 处理Profile状态变化（detailed-v1.5）
         const { state, message } = data.data
         setProfileState(state)
+        
+        // Profile ready后重新加载capability profile（UI刷新chips）
+        if (state === 'ready' && config.sessionId) {
+          fetchCapabilityProfile(config.sessionId)
+        }
         
         const stateIcons = {
           'switching': '⏳',
@@ -315,6 +340,7 @@ function App() {
             messages={messages}
             onSend={handleSendMessage}
             onL2Confirm={handleL2Confirm}
+            capabilityProfile={capabilityProfile || undefined}
           />
         </div>
         
