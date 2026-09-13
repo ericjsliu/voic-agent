@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # MQTT Broker (Mosquitto)
   mosquitto:
-    image: eclipse-mosquitto:2.0
+    image: docker.m.daocloud.io/eclipse-mosquitto:2.0
     container_name: cockpit_mqtt
     ports:
       - "1883:1883"
@@ -15,7 +15,7 @@ services:
 
   # Redis (optional, for memory store)
   redis:
-    image: redis:7-alpine
+    image: docker.m.daocloud.io/library/redis:7-alpine
     container_name: cockpit_redis
     ports:
       - "6379:6379"
@@ -93,14 +93,16 @@ services:
       - cockpit_network
     command: python -m app.vehicle_mock.mock_vehicle
 
-  # Web UI (React + Vite)
+  # Web UI：宿主机 npm 构建后由 nginx 托管，避免拉取 node 镜像
+  # 首次需执行：cd web && npm install && npm run build
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
+    image: docker.m.daocloud.io/library/nginx:alpine
     container_name: cockpit_web_ui
     ports:
       - "3000:80"
+    volumes:
+      - ./web/dist:/usr/share/nginx/html:ro
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - agent
     networks:

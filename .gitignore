@@ -50,3 +50,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Frontend
+web/node_modules/

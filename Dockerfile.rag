@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# 使用 DaoCloud 镜像加速拉取（国内）
+FROM docker.m.daocloud.io/library/python:3.11-slim
 
 WORKDIR /app
 
