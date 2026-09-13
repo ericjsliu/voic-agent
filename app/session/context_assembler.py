@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 
 from ..schemas.context import DialogueContext, SessionInfo
 from ..memory import BaseMemoryStore
+from ..storage.entity_buffer import EntityBuffer
 
 
 class ContextAssembler:
@@ -13,8 +14,9 @@ class ContextAssembler:
     # 最近对话条数
     MAX_RECENT_UTTERANCES = 5
     
-    def __init__(self, memory_store: BaseMemoryStore):
+    def __init__(self, memory_store: BaseMemoryStore, entity_buffer: Optional[EntityBuffer] = None):
         self.memory_store = memory_store
+        self.entity_buffer = entity_buffer
     
     async def assemble(
         self,
@@ -59,12 +61,18 @@ class ContextAssembler:
                 "lon": telemetry["longitude"]
             }
         
+        # 获取实体缓冲区（分钟级热数据）
+        entity_buffer_data = {}
+        if self.entity_buffer:
+            entity_buffer_data = self.entity_buffer.get_all(session_id)
+        
         context = DialogueContext(
             session_info=session_info,
             recent_utterances=recent_utterances,
             shadow_state=shadow_state,
             memory_slice=memory_slice,
-            current_location=current_location
+            current_location=current_location,
+            entity_buffer=entity_buffer_data
         )
         
         return context

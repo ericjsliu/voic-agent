@@ -21,3 +21,4 @@ class DialogueContext(BaseModel):
     shadow_state: Dict[str, Any] = {}  # 影子状态（车辆当前状态）
     memory_slice: Dict[str, Any] = {}  # 记忆切片（用户偏好等）
     current_location: Optional[Dict[str, float]] = None  # {"lat": x, "lon": y}
+    entity_buffer: Dict[str, Any] = {}  # 实体缓冲区（分钟级热数据：POI、媒体、候选列表）
