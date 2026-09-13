@@ -13,8 +13,15 @@ from ..capabilities import CapabilityProfile, get_capability_loader
 class SessionManager:
     """会话管理器"""
     
-    def __init__(self, memory_store: BaseMemoryStore):
+    def __init__(
+        self,
+        memory_store: BaseMemoryStore,
+        pg_store=None,
+        entity_buffer=None
+    ):
         self.memory_store = memory_store
+        self.pg_store = pg_store
+        self.entity_buffer = entity_buffer
         self.active_sessions: Dict[str, SessionInfo] = {}
     
     async def create_session(
@@ -94,18 +101,30 @@ class SessionManager:
         session_id: str,
         new_driver_id: str
     ) -> SessionInfo:
-        """切换驾驶员（清空影子状态和记忆切片）"""
+        """切换驾驶员（清空影子状态、记忆切片、实体缓冲区、能力档案切片）"""
         session_info = await self.get_session(session_id)
         if not session_info:
             raise ValueError(f"Session {session_id} not found")
+        
+        print(f"[SessionManager] Switching driver from {session_info.driver_id} to {new_driver_id}")
         
         # 更新driver_id
         session_info.driver_id = new_driver_id
         session_info.last_active = datetime.utcnow().isoformat() + "Z"
         
-        # 清空影子状态和记忆切片
+        # 清空影子状态
         await self.memory_store.delete(f"shadow_state:{session_id}")
+        
+        # 清空记忆切片（会在下次对话时从PostgreSQL重新加载新驾驶员的偏好）
         await self.memory_store.delete(f"memory_slice:{session_id}")
+        
+        # 清空实体缓冲区（分钟级热数据）
+        if self.entity_buffer:
+            self.entity_buffer.clear_all(session_id)
+            print(f"[SessionManager] Cleared entity buffer for session {session_id}")
+        
+        # 清空能力档案缓存（会在下次对话时重新加载）
+        await self.memory_store.delete(f"capability_profile:{session_id}")
         
         # 保存
         await self.memory_store.set_json(
@@ -115,6 +134,8 @@ class SessionManager:
         )
         
         self.active_sessions[session_id] = session_info
+        
+        print(f"[SessionManager] Driver switch complete, cleared: shadow_state, memory_slice, entity_buffer, capability_profile")
         
         return session_info
     
@@ -133,7 +154,12 @@ class SessionManager:
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
         
+        # 清理Redis缓存
         await self.memory_store.delete(f"session:{session_id}")
         await self.memory_store.delete(f"shadow_state:{session_id}")
         await self.memory_store.delete(f"memory_slice:{session_id}")
         await self.memory_store.delete(f"capability_profile:{session_id}")
+        
+        # 清理实体缓冲区
+        if self.entity_buffer:
+            self.entity_buffer.clear_all(session_id)

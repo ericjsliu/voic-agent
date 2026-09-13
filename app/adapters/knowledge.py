@@ -35,14 +35,16 @@ class KnowledgeAdapter(BaseDomainAdapter):
         )
         
         if not hits:
-            # 无命中结果
+            # **Citation Enforcement**: 无引用则不能作为手册权威回答
+            print(f"[KnowledgeAdapter] No citations found for query: {action.query}")
             return {
                 "step_id": step.step_id,
                 "domain": "knowledge",
                 "action": "query_manual",
-                "status": "no_results",
+                "status": "no_citations",
                 "answer": None,
-                "error": "未找到相关手册内容。请确认车型和版本信息是否正确。"
+                "citations": [],
+                "error": "抱歉，未能在用户手册中找到带引用的可靠信息"
             }
         
         # 生成答案（基于检索结果）
@@ -60,6 +62,19 @@ class KnowledgeAdapter(BaseDomainAdapter):
             for hit in hits
         ]
         
+        # **Citation Enforcement**: 必须有citations才能返回答案
+        if not citations:
+            print(f"[KnowledgeAdapter] WARNING: Hits found but no valid citations")
+            return {
+                "step_id": step.step_id,
+                "domain": "knowledge",
+                "action": "query_manual",
+                "status": "no_citations",
+                "answer": None,
+                "citations": [],
+                "error": "找到相关内容但缺少引用信息，无法作为权威回答"
+            }
+        
         result = {
             "step_id": step.step_id,
             "domain": "knowledge",
@@ -70,6 +85,7 @@ class KnowledgeAdapter(BaseDomainAdapter):
             "status": "success"
         }
         
+        print(f"[KnowledgeAdapter] Query successful with {len(citations)} citations")
         return result
     
     def _generate_answer_from_hits(self, query: str, hits: List[RAGHit]) -> str:

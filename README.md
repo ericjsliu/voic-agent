@@ -31,22 +31,35 @@ ASR文本 → 上下文组装 → 规划器(LLM) → 编排器(状态机) → �
    - 支持并行执行独立步骤
    - 处理车辆写回（ack/confirm/nav事件）
 
-5. **能力档案（Capability Profiles）**
+5. **存储分层（Redis + PostgreSQL）**
+   - **Redis（热路径）**: Session信息、影子状态、实体缓冲区（5分钟TTL）、最近对话、活跃任务、L2等待状态
+   - **PostgreSQL（持久化）**: 长期记忆白名单（user_prefs, vehicle_config, frequent_destinations, music_prefs）、能力档案版本、用户手册元数据、TaskGraph审计日志、Writeback事件日志、时空事件摘要
+   - **混合内存存储**: 白名单数据自动同步到PostgreSQL，其他热数据仅在Redis
+   - **实体缓冲区**: 分钟级热缓存（最近POI、媒体、车辆对象、候选列表），在Context Assemble时注入，驾驶员切换时清空
+
+6. **能力档案（Capability Profiles）**
    - 基于vehicle_model的动作白名单、参数范围、L1门控规则覆盖、功能特性标志
    - Model A (Standard): 基础功能（车窗、车门、空调）- 不支持天窗、座椅加热
    - Model B (Premium): 完整功能包括天窗、座椅加热、电动后备箱
    - 不支持的动作触发TTS"不支持"提示而非执行
    - 车辆连接时报告model_id → Session加载档案 → Planner过滤动作 → 仅支持的动作进入TaskGraph → Adapter验证 → MQTT发布
 
-6. **领域适配器（Domain Adapters）**
-   - **vehicle**: 车辆控制，验证档位/车速约束，能力档案验证
-   - **navigation**: 导航，POI解析，mock地图
-   - **media**: 媒体控制
+7. **上下文增强（Context Features）**
+   - **实体缓冲区**: 分钟级热数据（POI、媒体、车辆对象、候选列表），Context Assemble时注入
+   - **改写/取消规则**: 30秒内同task_id可改写或取消（"算了"、"改成"关键词）
+   - **拒绝规则**: 区域限制（学校/医院区域禁止车辆控制）、低置信度拒绝、侧聊检测（"今天天气"等不应触发车辆动作）
+   - **知识引用强制**: 必须有citations[]才能作为手册权威回答，无引用则拒绝
+   - **时空事件摘要**: 结构化事件存储（非原始对话），支持"昨天充电站"等查询
+
+8. **领域适配器（Domain Adapters）**
+   - **vehicle**: 车辆控制，验证档位/车速约束，能力档案验证，拒绝规则检查
+   - **navigation**: 导航，POI解析，mock地图，记录时空事件
+   - **media**: 媒体控制，实体缓冲区记录
    - **calendar**: 日历操作
-   - **knowledge**: 混合RAG查询（仅文本，v1不支持视频）
+   - **knowledge**: 混合RAG查询（仅文本，v1不支持视频），**强制citations[]**
    - **chitchat**: 闲聊，无schema/状态/记忆
 
-7. **记忆存储（Memory Store）**
+9. **记忆存储（Memory Store）**
    - Redis + in-memory fallback
    - 白名单两阶段写入（user_prefs, vehicle_config, frequent_destinations, music_prefs）
 
@@ -88,7 +101,10 @@ LLM_DEFAULT_MODEL=qwen-turbo
 AGENT_PORT=8000
 MQTT_BROKER=localhost
 MQTT_PORT=1883
+
+# 存储配置（Redis热缓存 + PostgreSQL持久化）
 REDIS_URL=redis://localhost:6379/0
+DATABASE_URL=postgresql://cockpit:cockpit@localhost:5432/cockpit_agent
 
 # Hybrid RAG服务
 HYBRID_RAG_BASE_URL=http://localhost:8001
@@ -112,15 +128,18 @@ HYBRID_RAG_API_KEY=  # 可选
 cp .env.example .env
 # 编辑 .env 文件，填入你的 Alibaba DashScope API Key
 
-# 2. 启动所有服务（agent, mock_vehicle, mock_rag, mosquitto, redis）
+# 2. 启动所有服务（agent, mock_vehicle, mock_rag, mosquitto, redis, postgres, web）
 docker-compose up --build
 
-# 等待服务启动完成（约10秒）
+# 等待服务启动完成（约15秒）
 # Agent: http://localhost:8000
 # Mock RAG: http://localhost:8001
 # MQTT: localhost:1883
+# PostgreSQL: localhost:5432
+# Web UI: http://localhost:3000
 
 # 提示：如果没有配置 OPENAI_API_KEY，系统会自动使用规则式规划fallback
+# PostgreSQL会自动创建表结构，无需手动迁移
 ```
 
 ### 本地开发模式
@@ -455,6 +474,72 @@ docker logs cockpit_agent
 
 # 检查环境变量
 docker exec cockpit_agent env | grep -E "(MQTT|RAG|LLM)"
+```
+
+## 存储架构详解
+
+### Redis vs PostgreSQL 职责划分
+
+**Redis（热路径，短TTL）**:
+```
+- session:{session_id}          → 会话信息（24小时）
+- shadow_state:{session_id}     → 影子状态（1小时）
+- entity_buffer:{session_id}:*  → 实体缓冲区（5分钟）
+- utterances:{session_id}       → 最近对话（24小时）
+- active_task:{session_id}      → 活跃任务（30秒改写窗口）
+```
+
+**PostgreSQL（持久化，永久保存）**:
+```
+- long_term_memory              → 长期记忆白名单（driver级别）
+  * user_prefs:driver_id:*
+  * vehicle_config:driver_id:*
+  * frequent_destinations:driver_id:*
+  * music_prefs:driver_id:*
+
+- capability_profile_versions   → 能力档案版本管理
+- manual_metadata               → 用户手册元数据 + pgvector嵌入
+- task_audit_logs               → TaskGraph执行审计
+- writeback_logs                → Writeback事件历史
+- spatiotemporal_events         → 时空事件摘要（非原始对话）
+```
+
+### 数据流
+
+```
+写入白名单数据（如user_prefs）:
+  HybridMemoryStore.set_json() 
+    → Redis（热缓存）
+    → PostgreSQL（持久化）
+
+读取白名单数据:
+  HybridMemoryStore.get_json()
+    → 先查Redis（快速）
+    → Redis miss → 查PostgreSQL → 回填Redis
+
+驾驶员切换:
+  SessionManager.switch_driver()
+    → 清空Redis: shadow_state, memory_slice, entity_buffer
+    → 下次对话从PostgreSQL重新加载新驾驶员的whitelist
+```
+
+### 健康检查
+
+```bash
+curl http://localhost:8000/health
+```
+
+返回示例：
+```json
+{
+  "status": "ok",
+  "services": {
+    "mqtt": true,
+    "redis": true,
+    "postgresql": true,
+    "entity_buffer": true
+  }
+}
 ```
 
 ## 扩展指南

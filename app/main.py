@@ -20,6 +20,9 @@ from .schemas import TaskGraph, WritebackEnvelope
 from .schemas.context import DialogueContext
 from .memory import get_memory_store
 from .rag_client import HybridRAGClient
+from .storage import init_db, create_tables, close_db, PostgresStore, EntityBuffer
+from .planner.rewrite_cancel import RewriteCancelManager
+from .planner.refusal_rules import RefusalRules
 from .adapters import (
     VehicleAdapter,
     NavigationAdapter,
@@ -39,6 +42,9 @@ class AppState:
     """应用全局状态"""
     def __init__(self):
         self.memory_store = None
+        self.pg_store = None
+        self.entity_buffer = None
+        self.rewrite_cancel_manager = None
         self.session_manager = None
         self.context_assembler = None
         self.rag_client = None
@@ -136,12 +142,40 @@ async def lifespan(app: FastAPI):
     # 启动时初始化
     print("[Agent] Initializing...")
     
-    # Memory
-    app_state.memory_store = get_memory_store()
+    # PostgreSQL Database
+    try:
+        init_db()
+        create_tables()
+        app_state.pg_store = PostgresStore()
+        print("[Agent] PostgreSQL initialized")
+    except Exception as e:
+        print(f"[Agent] WARNING: PostgreSQL initialization failed: {e}")
+        print("[Agent] Continuing with Redis-only mode")
+    
+    # Memory (Hybrid: Redis + PostgreSQL)
+    app_state.memory_store = get_memory_store(pg_store=app_state.pg_store)
+    
+    # Entity Buffer (Redis hot cache)
+    redis_client = app_state.memory_store.redis if hasattr(app_state.memory_store, 'redis') else None
+    if redis_client:
+        app_state.entity_buffer = EntityBuffer(redis_client)
+        print("[Agent] Entity Buffer initialized")
+    
+    # Rewrite/Cancel Manager
+    if redis_client:
+        app_state.rewrite_cancel_manager = RewriteCancelManager(redis_client)
+        print("[Agent] Rewrite/Cancel Manager initialized")
     
     # Session
-    app_state.session_manager = SessionManager(app_state.memory_store)
-    app_state.context_assembler = ContextAssembler(app_state.memory_store)
+    app_state.session_manager = SessionManager(
+        app_state.memory_store,
+        pg_store=app_state.pg_store,
+        entity_buffer=app_state.entity_buffer
+    )
+    app_state.context_assembler = ContextAssembler(
+        app_state.memory_store,
+        entity_buffer=app_state.entity_buffer
+    )
     
     # RAG Client
     app_state.rag_client = HybridRAGClient()
@@ -193,6 +227,8 @@ async def lifespan(app: FastAPI):
         app_state.mqtt_client.disconnect()
     if app_state.rag_client:
         await app_state.rag_client.close()
+    if app_state.pg_store:
+        close_db()
     print("[Agent] Shutdown complete")
 
 
@@ -262,9 +298,25 @@ async def root():
 @app.get("/health")
 async def health():
     """健康检查"""
+    pg_healthy = False
+    if app_state.pg_store:
+        try:
+            from .storage import get_db
+            db = get_db()
+            db.execute("SELECT 1")
+            db.close()
+            pg_healthy = True
+        except:
+            pass
+    
     return {
         "status": "ok",
-        "mqtt_connected": app_state.mqtt_client.is_connected() if app_state.mqtt_client else False
+        "services": {
+            "mqtt": app_state.mqtt_client.is_connected() if app_state.mqtt_client else False,
+            "redis": app_state.memory_store is not None,
+            "postgresql": pg_healthy,
+            "entity_buffer": app_state.entity_buffer is not None
+        }
     }
 
 

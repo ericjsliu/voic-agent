@@ -175,8 +175,11 @@ class InMemoryStore(BaseMemoryStore):
 _memory_store: Optional[BaseMemoryStore] = None
 
 
-def get_memory_store() -> BaseMemoryStore:
-    """获取内存存储实例（单例）"""
+def get_memory_store(pg_store=None) -> BaseMemoryStore:
+    """获取内存存储实例（单例）
+    
+    如果提供pg_store，返回HybridMemoryStore（Redis热缓存 + PostgreSQL持久化）
+    """
     global _memory_store
     
     if _memory_store is None:
@@ -184,13 +187,21 @@ def get_memory_store() -> BaseMemoryStore:
         
         if REDIS_AVAILABLE:
             try:
-                _memory_store = RedisMemoryStore(redis_url)
+                base_store = RedisMemoryStore(redis_url)
                 print("Using Redis memory store")
             except Exception as e:
                 print(f"Failed to connect to Redis: {e}, falling back to in-memory store")
-                _memory_store = InMemoryStore()
+                base_store = InMemoryStore()
         else:
             print("Redis not available, using in-memory store")
-            _memory_store = InMemoryStore()
+            base_store = InMemoryStore()
+        
+        # 如果有PostgreSQL，使用混合存储
+        if pg_store:
+            from .hybrid_store import HybridMemoryStore
+            _memory_store = HybridMemoryStore(base_store, pg_store)
+            print("Using Hybrid memory store (Redis + PostgreSQL)")
+        else:
+            _memory_store = base_store
     
     return _memory_store
