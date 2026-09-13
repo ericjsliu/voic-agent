@@ -25,18 +25,37 @@ class DomainType(str, Enum):
 
 # ==================== Vehicle Domain ====================
 class VehicleAction(BaseModel):
-    """车辆控制动作"""
+    """车辆控制动作（完整座舱命令集）"""
     action: Literal[
+        # Windows & Sunroof
         "window_open", "window_close",
-        "door_lock", "door_unlock",
-        "ac_on", "ac_off", "ac_set_temp",
         "sunroof_open", "sunroof_close",
-        "seat_heat_on", "seat_heat_off",
-        "trunk_open"
+        "sunshade_open", "sunshade_close",
+        # Doors & Locks
+        "door_lock", "door_unlock", "child_lock",
+        # Storage Compartments
+        "trunk_open", "frunk_open", "charge_port_open",
+        # Climate Control
+        "ac_power", "set_ac_temp", "set_ac_fan_mode", "set_ac_fan_speed", "set_ac_circulation",
+        "defrost_front", "defrost_rear",
+        # Seats
+        "seat_heat", "seat_vent",
+        # Steering
+        "steering_wheel_heat",
+        # Lighting
+        "ambient_light", "fog_light", "position_light", "low_beam",
+        # Mirrors & Wipers
+        "mirror_fold", "wiper_speed"
     ]
-    target: Optional[str] = None  # 例如: "driver_window", "all_windows", "front_left"
-    value: Optional[float] = None  # 用于 ac_set_temp (温度值)
-    level: ActionLevel = ActionLevel.L1
+    target: Optional[str] = None  # "driver", "passenger", "front_left", "all", etc.
+    percent: Optional[int] = None  # For windows, sunroof (0-100)
+    temperature: Optional[float] = None  # For AC temp (16-30°C)
+    speed: Optional[int] = None  # For fan speed, wiper speed
+    fan_mode: Optional[str] = None  # "face", "feet", "both"
+    circulation: Optional[str] = None  # "internal", "external"
+    level: Optional[int] = None  # For seat heat/vent (0-3)
+    state: Optional[str] = None  # "on", "off", "enable", "disable"
+    level: ActionLevel = ActionLevel.L1  # Default L1, can be overridden in profile
 
 
 # ==================== Navigation Domain ====================
@@ -65,39 +84,64 @@ class NavGoal(BaseModel):
 
 
 class NavigationAction(BaseModel):
-    """导航动作"""
-    action: Literal["nav_to", "nav_cancel", "nav_reroute"]
+    """导航动作（完整导航命令集）"""
+    action: Literal[
+        "set_nav_goal", "nav_to",  # nav_to is alias for set_nav_goal
+        "cancel_nav", "nav_cancel",  # nav_cancel is alias for cancel_nav
+        "add_via", "remove_via",
+        "set_route_prefs",
+        "query_eta", "query_remaining_distance", "query_next_maneuver"
+    ]
     goal: Optional[NavGoal] = None
-    route_prefs: RoutePreferences = Field(default_factory=RoutePreferences)
-    level: ActionLevel = ActionLevel.L0  # nav_to 是 L0（查询路线），实际导航由车辆开始
+    via_poi: Optional[str] = None  # POI name for via point
+    route_prefs: Optional[RoutePreferences] = None
+    level: ActionLevel = ActionLevel.L0  # Navigation queries are L0
 
 
 # ==================== Media Domain ====================
 class MediaAction(BaseModel):
-    """媒体控制动作"""
+    """媒体控制动作（完整媒体命令集）"""
     action: Literal[
-        "play_music", "pause", "next_track", "prev_track",
-        "volume_up", "volume_down", "set_volume",
-        "play_radio", "search_music"
+        # Playback Control
+        "media_play", "play_music",  # play_music is alias
+        "media_pause", "pause",  # pause is alias
+        "media_next", "next_track",  # next_track is alias
+        "media_prev", "prev_track",  # prev_track is alias
+        # Volume Control
+        "volume_up", "volume_down", "set_volume", "mute",
+        # Content Selection
+        "play_by_artist", "play_by_title", "play_playlist",
+        "play_radio", "play_favorites", "play_random",
+        # Source Control
+        "switch_source",
+        # Search
+        "search_music"
     ]
-    query: Optional[str] = None  # 搜索关键词或歌曲名
-    volume: Optional[int] = None  # 音量值 (0-100)
-    station: Optional[str] = None  # 电台频率
-    level: ActionLevel = ActionLevel.L1
+    query: Optional[str] = None  # Search keyword, song name, artist name
+    artist: Optional[str] = None  # Artist name
+    title: Optional[str] = None  # Song title
+    playlist: Optional[str] = None  # Playlist name
+    source: Optional[str] = None  # "bluetooth", "usb", "online", "fm"
+    volume: Optional[int] = None  # Volume (0-100)
+    station: Optional[str] = None  # Radio station
+    level: ActionLevel = ActionLevel.L0  # Media controls are L0
 
 
 # ==================== Calendar Domain ====================
 class CalendarAction(BaseModel):
-    """日历动作"""
+    """日历动作（完整日程命令集）"""
     action: Literal[
-        "query_schedule", "add_event", "cancel_event",
+        "create_event", "add_event",  # add_event is alias
+        "query_events", "query_schedule",  # query_schedule is alias
+        "cancel_event",
         "next_appointment", "today_schedule"
     ]
     event_title: Optional[str] = None
-    start_time: Optional[str] = None  # ISO 8601格式
+    start_time: Optional[str] = None  # ISO 8601 format
     end_time: Optional[str] = None
     location: Optional[str] = None
-    level: ActionLevel = ActionLevel.L0  # 查询类
+    description: Optional[str] = None
+    level: ActionLevel = ActionLevel.L0  # Calendar operations are L0
 
 
 # ==================== Knowledge Domain ====================

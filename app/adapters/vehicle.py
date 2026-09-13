@@ -7,13 +7,16 @@ from ..schemas.taskgraph import Step, VehicleAction, ActionLevel
 
 
 class VehicleAdapter(BaseDomainAdapter):
-    """车辆控制适配器"""
+    """车辆控制适配器（完整座舱命令集）"""
     
-    # 需要档位在P的动作
-    REQUIRES_PARK_GEAR = {"door_lock", "door_unlock", "trunk_open"}
+    # 需要档位在P的动作（扩展列表）
+    REQUIRES_PARK_GEAR = {
+        "door_lock", "door_unlock", "child_lock",
+        "trunk_open", "frunk_open", "charge_port_open"
+    }
     
     # 需要车辆静止的动作
-    REQUIRES_STATIONARY = {"sunroof_open", "sunroof_close"}
+    REQUIRES_STATIONARY = {"sunroof_open", "sunroof_close", "sunshade_open", "sunshade_close"}
     
     async def validate(self, step: Step, shadow_state: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """验证车辆控制步骤"""
@@ -31,10 +34,26 @@ class VehicleAdapter(BaseDomainAdapter):
             if speed > 0:
                 return False, f"Action {action.action} requires vehicle stationary, current speed: {speed}"
         
-        # 检查温度范围
-        if action.action == "ac_set_temp" and action.value is not None:
-            if not (16 <= action.value <= 30):
-                return False, f"Temperature {action.value} out of range [16, 30]"
+        # 检查参数范围
+        if action.action == "set_ac_temp" and action.temperature is not None:
+            if not (16 <= action.temperature <= 30):
+                return False, f"Temperature {action.temperature} out of range [16, 30]"
+        
+        if action.action == "set_ac_fan_speed" and action.speed is not None:
+            if not (1 <= action.speed <= 7):
+                return False, f"Fan speed {action.speed} out of range [1, 7]"
+        
+        if action.action in ["seat_heat", "seat_vent"] and action.level is not None:
+            if not (0 <= action.level <= 3):
+                return False, f"Seat level {action.level} out of range [0, 3]"
+        
+        if action.action == "wiper_speed" and action.speed is not None:
+            if not (0 <= action.speed <= 5):
+                return False, f"Wiper speed {action.speed} out of range [0, 5]"
+        
+        if action.action in ["window_open", "sunroof_open"] and action.percent is not None:
+            if not (0 <= action.percent <= 100):
+                return False, f"Percent {action.percent} out of range [0, 100]"
         
         # L2级别动作需要特殊标记（由Orchestrator处理确认）
         if action.level == ActionLevel.L2:

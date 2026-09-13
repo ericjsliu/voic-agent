@@ -1,129 +1,424 @@
 {
   "model_id": "model_b",
   "model_name": "Model B (Premium)",
-  "hardware_option": "premium",
-  "version": "1.0",
-  "description": "高配版，全功能支持",
-  
+  "description": "高级配置车型 - 完整功能集（包含天窗、座椅加热/通风、方向盘加热等）",
   "supported_actions": [
-    "window_open",
-    "window_close",
-    "door_lock",
-    "door_unlock",
-    "ac_on",
-    "ac_off",
-    "ac_set_temp",
-    "sunroof_open",
-    "sunroof_close",
-    "seat_heat_on",
-    "seat_heat_off",
-    "trunk_open"
+    "window_open", "window_close",
+    "sunroof_open", "sunroof_close",
+    "sunshade_open", "sunshade_close",
+    "door_lock", "door_unlock",
+    "child_lock",
+    "trunk_open", "frunk_open", "charge_port_open",
+    "ac_power", "set_ac_temp", "set_ac_fan_mode", "set_ac_fan_speed", "set_ac_circulation",
+    "defrost_front", "defrost_rear",
+    "seat_heat", "seat_vent",
+    "steering_wheel_heat",
+    "ambient_light",
+    "fog_light", "position_light", "low_beam",
+    "mirror_fold",
+    "wiper_speed",
+    "set_nav_goal", "cancel_nav", "add_via", "remove_via", "set_route_prefs",
+    "query_eta", "query_remaining_distance", "query_next_maneuver",
+    "media_play", "media_pause", "media_next", "media_prev",
+    "volume_up", "volume_down", "mute",
+    "play_by_artist", "play_by_title", "play_playlist", "play_radio", "play_favorites", "play_random",
+    "switch_source",
+    "create_event", "query_events", "cancel_event",
+    "query_manual", "chitchat"
   ],
-  
   "action_capabilities": {
     "window_open": {
       "action": "window_open",
       "supported": true,
-      "requires_park": false,
+      "level": "L1",
+      "param_ranges": {
+        "percent": {"min": 0, "max": 100, "step": 10}
+      },
+      "requires_stationary": false,
       "description": "打开车窗"
     },
     "window_close": {
       "action": "window_close",
       "supported": true,
-      "requires_park": false,
+      "level": "L1",
+      "requires_stationary": false,
       "description": "关闭车窗"
-    },
-    "door_lock": {
-      "action": "door_lock",
-      "supported": true,
-      "requires_park": true,
-      "description": "锁车"
-    },
-    "door_unlock": {
-      "action": "door_unlock",
-      "supported": true,
-      "requires_park": true,
-      "description": "解锁"
-    },
-    "ac_on": {
-      "action": "ac_on",
-      "supported": true,
-      "description": "开启空调"
-    },
-    "ac_off": {
-      "action": "ac_off",
-      "supported": true,
-      "description": "关闭空调"
-    },
-    "ac_set_temp": {
-      "action": "ac_set_temp",
-      "supported": true,
-      "param_ranges": {
-        "value": {
-          "min": 18.0,
-          "max": 28.0,
-          "step": 0.5
-        }
-      },
-      "description": "设置空调温度（高配范围更窄）"
     },
     "sunroof_open": {
       "action": "sunroof_open",
       "supported": true,
+      "level": "L1",
+      "param_ranges": {
+        "percent": {"min": 0, "max": 100, "step": 10}
+      },
       "requires_stationary": true,
-      "description": "打开天窗（需要静止）"
+      "description": "打开天窗"
     },
     "sunroof_close": {
       "action": "sunroof_close",
       "supported": true,
-      "requires_stationary": false,
+      "level": "L1",
+      "requires_stationary": true,
       "description": "关闭天窗"
     },
-    "seat_heat_on": {
-      "action": "seat_heat_on",
+    "sunshade_open": {
+      "action": "sunshade_open",
       "supported": true,
-      "description": "座椅加热"
+      "level": "L1",
+      "description": "打开遮阳板"
     },
-    "seat_heat_off": {
-      "action": "seat_heat_off",
+    "sunshade_close": {
+      "action": "sunshade_close",
       "supported": true,
-      "description": "关闭座椅加热"
+      "level": "L1",
+      "description": "关闭遮阳板"
+    },
+    "door_lock": {
+      "action": "door_lock",
+      "supported": true,
+      "level": "L2",
+      "requires_park": true,
+      "description": "锁车门"
+    },
+    "door_unlock": {
+      "action": "door_unlock",
+      "supported": true,
+      "level": "L2",
+      "requires_park": true,
+      "description": "解锁车门"
+    },
+    "child_lock": {
+      "action": "child_lock",
+      "supported": true,
+      "level": "L2",
+      "requires_park": true,
+      "description": "儿童锁控制"
     },
     "trunk_open": {
       "action": "trunk_open",
       "supported": true,
+      "level": "L1",
       "requires_park": true,
-      "description": "电动后备箱"
+      "description": "打开后备箱"
+    },
+    "frunk_open": {
+      "action": "frunk_open",
+      "supported": true,
+      "level": "L1",
+      "requires_park": true,
+      "description": "打开前备箱"
+    },
+    "charge_port_open": {
+      "action": "charge_port_open",
+      "supported": true,
+      "level": "L1",
+      "requires_park": true,
+      "description": "打开充电口"
+    },
+    "ac_power": {
+      "action": "ac_power",
+      "supported": true,
+      "level": "L0",
+      "description": "空调开关"
+    },
+    "set_ac_temp": {
+      "action": "set_ac_temp",
+      "supported": true,
+      "level": "L0",
+      "param_ranges": {
+        "temperature": {"min": 16, "max": 30, "step": 0.5}
+      },
+      "description": "设置空调温度"
+    },
+    "set_ac_fan_mode": {
+      "action": "set_ac_fan_mode",
+      "supported": true,
+      "level": "L0",
+      "description": "设置空调送风模式"
+    },
+    "set_ac_fan_speed": {
+      "action": "set_ac_fan_speed",
+      "supported": true,
+      "level": "L0",
+      "param_ranges": {
+        "speed": {"min": 1, "max": 7}
+      },
+      "description": "设置空调风速"
+    },
+    "set_ac_circulation": {
+      "action": "set_ac_circulation",
+      "supported": true,
+      "level": "L0",
+      "description": "设置空调循环模式"
+    },
+    "defrost_front": {
+      "action": "defrost_front",
+      "supported": true,
+      "level": "L0",
+      "description": "前挡风除霜"
+    },
+    "defrost_rear": {
+      "action": "defrost_rear",
+      "supported": true,
+      "level": "L0",
+      "description": "后挡风除霜"
+    },
+    "seat_heat": {
+      "action": "seat_heat",
+      "supported": true,
+      "level": "L0",
+      "param_ranges": {
+        "level": {"min": 0, "max": 3}
+      },
+      "description": "座椅加热"
+    },
+    "seat_vent": {
+      "action": "seat_vent",
+      "supported": true,
+      "level": "L0",
+      "param_ranges": {
+        "level": {"min": 0, "max": 3}
+      },
+      "description": "座椅通风"
+    },
+    "steering_wheel_heat": {
+      "action": "steering_wheel_heat",
+      "supported": true,
+      "level": "L0",
+      "description": "方向盘加热"
+    },
+    "ambient_light": {
+      "action": "ambient_light",
+      "supported": true,
+      "level": "L0",
+      "description": "氛围灯控制"
+    },
+    "fog_light": {
+      "action": "fog_light",
+      "supported": true,
+      "level": "L1",
+      "description": "雾灯控制"
+    },
+    "position_light": {
+      "action": "position_light",
+      "supported": true,
+      "level": "L1",
+      "description": "示宽灯控制"
+    },
+    "low_beam": {
+      "action": "low_beam",
+      "supported": true,
+      "level": "L1",
+      "description": "近光灯控制"
+    },
+    "mirror_fold": {
+      "action": "mirror_fold",
+      "supported": true,
+      "level": "L1",
+      "description": "后视镜折叠"
+    },
+    "wiper_speed": {
+      "action": "wiper_speed",
+      "supported": true,
+      "level": "L1",
+      "param_ranges": {
+        "speed": {"min": 0, "max": 5}
+      },
+      "description": "雨刮速度"
+    },
+    "set_nav_goal": {
+      "action": "set_nav_goal",
+      "supported": true,
+      "level": "L0",
+      "description": "设置导航目的地"
+    },
+    "cancel_nav": {
+      "action": "cancel_nav",
+      "supported": true,
+      "level": "L0",
+      "description": "取消导航"
+    },
+    "add_via": {
+      "action": "add_via",
+      "supported": true,
+      "level": "L0",
+      "description": "添加途经点"
+    },
+    "remove_via": {
+      "action": "remove_via",
+      "supported": true,
+      "level": "L0",
+      "description": "移除途经点"
+    },
+    "set_route_prefs": {
+      "action": "set_route_prefs",
+      "supported": true,
+      "level": "L0",
+      "description": "设置路线偏好（避开高速/收费/拥堵）"
+    },
+    "query_eta": {
+      "action": "query_eta",
+      "supported": true,
+      "level": "L0",
+      "description": "查询预计到达时间"
+    },
+    "query_remaining_distance": {
+      "action": "query_remaining_distance",
+      "supported": true,
+      "level": "L0",
+      "description": "查询剩余距离"
+    },
+    "query_next_maneuver": {
+      "action": "query_next_maneuver",
+      "supported": true,
+      "level": "L0",
+      "description": "查询下一步转向"
+    },
+    "media_play": {
+      "action": "media_play",
+      "supported": true,
+      "level": "L0",
+      "description": "播放媒体"
+    },
+    "media_pause": {
+      "action": "media_pause",
+      "supported": true,
+      "level": "L0",
+      "description": "暂停播放"
+    },
+    "media_next": {
+      "action": "media_next",
+      "supported": true,
+      "level": "L0",
+      "description": "下一曲"
+    },
+    "media_prev": {
+      "action": "media_prev",
+      "supported": true,
+      "level": "L0",
+      "description": "上一曲"
+    },
+    "volume_up": {
+      "action": "volume_up",
+      "supported": true,
+      "level": "L0",
+      "description": "音量增大"
+    },
+    "volume_down": {
+      "action": "volume_down",
+      "supported": true,
+      "level": "L0",
+      "description": "音量减小"
+    },
+    "mute": {
+      "action": "mute",
+      "supported": true,
+      "level": "L0",
+      "description": "静音"
+    },
+    "play_by_artist": {
+      "action": "play_by_artist",
+      "supported": true,
+      "level": "L0",
+      "description": "按艺术家播放"
+    },
+    "play_by_title": {
+      "action": "play_by_title",
+      "supported": true,
+      "level": "L0",
+      "description": "按歌曲名播放"
+    },
+    "play_playlist": {
+      "action": "play_playlist",
+      "supported": true,
+      "level": "L0",
+      "description": "播放歌单"
+    },
+    "play_radio": {
+      "action": "play_radio",
+      "supported": true,
+      "level": "L0",
+      "description": "播放电台"
+    },
+    "play_favorites": {
+      "action": "play_favorites",
+      "supported": true,
+      "level": "L0",
+      "description": "播放收藏"
+    },
+    "play_random": {
+      "action": "play_random",
+      "supported": true,
+      "level": "L0",
+      "description": "随机播放"
+    },
+    "switch_source": {
+      "action": "switch_source",
+      "supported": true,
+      "level": "L0",
+      "description": "切换音源"
+    },
+    "create_event": {
+      "action": "create_event",
+      "supported": true,
+      "level": "L0",
+      "description": "创建日程"
+    },
+    "query_events": {
+      "action": "query_events",
+      "supported": true,
+      "level": "L0",
+      "description": "查询日程"
+    },
+    "cancel_event": {
+      "action": "cancel_event",
+      "supported": true,
+      "level": "L0",
+      "description": "取消日程"
     }
   },
-  
-  "l1_gate_overrides": [],
-  
   "features": {
     "has_sunroof": true,
+    "has_sunshade": true,
     "has_rear_ac": true,
     "has_seat_heating": true,
+    "has_seat_ventilation": true,
+    "has_steering_wheel_heat": true,
     "has_trunk_power": true,
-    "has_360_camera": true,
+    "has_frunk": true,
+    "has_charge_port": true,
+    "has_360_camera": false,
     "multi_zone_ac": true
   },
-  
-  "command_mappings": [
+  "l1_gate_overrides": [
     {
-      "taskgraph_action": "window_open",
-      "vehicle_command": "WINDOW_CONTROL",
-      "params_mapping": {
-        "target": "window_id",
-        "action": "open"
-      }
+      "action": "sunroof_open",
+      "requires_stationary": true,
+      "custom_validation": "车速必须为0"
     },
     {
-      "taskgraph_action": "sunroof_open",
-      "vehicle_command": "SUNROOF_CTRL_OPEN"
+      "action": "sunroof_close",
+      "requires_stationary": true
     },
     {
-      "taskgraph_action": "trunk_open",
-      "vehicle_command": "PWR_TRUNK_OPEN"
+      "action": "trunk_open",
+      "requires_park": true
+    },
+    {
+      "action": "frunk_open",
+      "requires_park": true
+    },
+    {
+      "action": "charge_port_open",
+      "requires_park": true
     }
-  ]
+  ],
+  "blacklist_actions": [
+    "gear_shift",
+    "throttle_control",
+    "steering_control",
+    "autopilot_enable",
+    "noa_enable"
+  ],
+  "version": "1.0"
 }
