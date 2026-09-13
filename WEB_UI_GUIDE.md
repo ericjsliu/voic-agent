@@ -193,16 +193,19 @@ npm run dev
    - Writebacks: `confirm_result` / `accepted` (绿色)
    - 随后: `vehicle_ack` / `success`
 
-### 场景4：导航两次Beat测试 ⭐ NEW
+### 场景4：导航完成测试 ⭐ UPDATED PRD v1.7
 
-**目标**: 验证导航事件流（route_started → arrived）
+**目标**: 验证导航步骤在route_started时完成（不等待arrived）
 
 1. 输入：`导航到机场`
 2. **观察Writebacks（时间线）**:
    - t=0s: TaskGraph下行，POI已解析
-   - t=2s: `nav_route_started` writeback 出现
-   - t=5s: `nav_arrived` writeback 出现
-3. **验证**: 两个beat事件按顺序出现，间隔正确
+   - t=1s: `nav_route_started` writeback 出现 → **导航步骤立即完成**
+   - ~~t=8s: `nav_arrived` (可选，默认关闭)~~
+3. **验证**: 
+   - 导航步骤在`nav_route_started`后立即标记为COMPLETED
+   - 后续步骤不会被导航阻塞
+   - `nav_arrived`是可选的（通过环境变量`MOCK_ENABLE_NAV_ARRIVED=true`启用）
 
 ### 场景5：RAG引用卡片测试 ⭐ NEW
 

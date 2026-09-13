@@ -24,12 +24,14 @@ class MockVehicle:
         mqtt_broker: str = "localhost",
         mqtt_port: int = 1883,
         client_id: str = "mock_vehicle",
-        model_id: str = "model_a"
+        model_id: str = "model_a",
+        enable_nav_arrived: bool = False  # PRD v1.7: nav_arrived is optional (default off)
     ):
         self.mqtt_broker = mqtt_broker
         self.mqtt_port = mqtt_port
         self.client_id = client_id
         self.model_id = model_id
+        self.enable_nav_arrived = enable_nav_arrived
         
         self.client = mqtt.Client(client_id=client_id)
         self.client.on_connect = self._on_connect
@@ -104,13 +106,16 @@ class MockVehicle:
                         self._send_writeback(task_id, step_id, branch_id, "vehicle_ack", "success", delay=0.5)
                     )
                 elif domain == "navigation":
-                    # Mock导航：2秒后route_started，5秒后arrived
+                    # PRD v1.7 / detailed-v2.0.1: Always emit nav_route_started (completes the step)
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, "nav_route_started", "success", delay=2.0)
+                        self._send_writeback(task_id, step_id, branch_id, "nav_route_started", "success", delay=1.0)
                     )
-                    asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, "nav_arrived", "success", delay=5.0)
-                    )
+                    
+                    # nav_arrived is optional (default off) - only for demo purposes
+                    if self.enable_nav_arrived:
+                        asyncio.create_task(
+                            self._send_writeback(task_id, step_id, branch_id, "nav_arrived", "success", delay=8.0)
+                        )
                 elif domain == "media":
                     asyncio.create_task(
                         self._send_writeback(task_id, step_id, branch_id, "media_ack", "success", delay=0.5)
@@ -208,8 +213,16 @@ async def main():
     mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
     model_id = sys.argv[1] if len(sys.argv) > 1 else "model_a"
     
-    vehicle = MockVehicle(mqtt_broker, mqtt_port, model_id=model_id)
-    print(f"[MockVehicle] Starting with model: {model_id}")
+    # PRD v1.7: nav_arrived is optional (default off)
+    enable_nav_arrived = os.getenv("MOCK_ENABLE_NAV_ARRIVED", "false").lower() == "true"
+    
+    vehicle = MockVehicle(
+        mqtt_broker,
+        mqtt_port,
+        model_id=model_id,
+        enable_nav_arrived=enable_nav_arrived
+    )
+    print(f"[MockVehicle] Starting with model: {model_id}, nav_arrived: {enable_nav_arrived}")
     vehicle.start()
     
     # 启动遥测发布

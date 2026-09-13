@@ -387,12 +387,27 @@ class Orchestrator:
                 step_state.error = writeback.reason
                 task_state.failed_steps.add(writeback.step_id)
         
-        elif writeback.event in [WritebackEvent.NAV_ROUTE_STARTED, WritebackEvent.NAV_ARRIVED]:
-            # 导航事件
+        elif writeback.event in [WritebackEvent.NAV_ROUTE_STARTED, WritebackEvent.NAV_ARRIVED, WritebackEvent.NAV_REROUTED]:
+            # 导航事件 (PRD v1.7 / detailed-v2.0.1)
             print(f"[Orchestrator] Navigation event: {writeback.event}")
-            if writeback.event == WritebackEvent.NAV_ARRIVED:
-                step_state.status = StepStatus.COMPLETED
-                task_state.completed_steps.add(writeback.step_id)
+            
+            if writeback.event == WritebackEvent.NAV_ROUTE_STARTED:
+                # P0: navigation step COMPLETE when route started (or nav_failed)
+                if writeback.status == WritebackStatus.SUCCESS:
+                    step_state.status = StepStatus.COMPLETED
+                    task_state.completed_steps.add(writeback.step_id)
+                    print(f"[Orchestrator] Navigation step {writeback.step_id} COMPLETED on route_started")
+                else:
+                    # nav_failed
+                    step_state.status = StepStatus.FAILED
+                    step_state.error = writeback.reason or "Navigation failed"
+                    task_state.failed_steps.add(writeback.step_id)
+                    print(f"[Orchestrator] Navigation step {writeback.step_id} FAILED")
+            
+            elif writeback.event in [WritebackEvent.NAV_ARRIVED, WritebackEvent.NAV_REROUTED]:
+                # Optional events - may trigger light TTS insert only; never required for orchestration success
+                print(f"[Orchestrator] Optional navigation event received: {writeback.event} (does not affect completion)")
+                # Could potentially notify via TTS here in the future
         
         elif writeback.event in [WritebackEvent.MEDIA_ACK, WritebackEvent.CALENDAR_ACK]:
             if writeback.status == WritebackStatus.SUCCESS:

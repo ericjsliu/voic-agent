@@ -90,7 +90,7 @@ ASR文本 → 上下文组装 → 规划器(LLM) → 编排器(状态机) → �
 | 域 | 动作示例 | 级别 | 备注 |
 |---|---|---|---|
 | vehicle | window_open/close, door_lock/unlock, ac_on/off/set_temp, sunroof_open/close, trunk_open | L1/L2 | door_lock/trunk_open是L2 |
-| navigation | nav_to, nav_cancel | L0 | POI必须预解析 |
+| navigation | nav_to, nav_cancel | L0 | POI必须预解析；步骤在nav_route_started时完成（PRD v1.7） |
 | media | play_music, pause, set_volume | L1 | |
 | calendar | query_schedule, add_event | L0 | |
 | knowledge | query_manual | L0 | 调用外部Hybrid RAG服务 |
@@ -292,7 +292,7 @@ curl -X POST http://localhost:8000/dialogue \
 
 响应：TaskGraph with navigation.nav_to, POI已解析为坐标
 
-Mock Vehicle会模拟：2秒后nav_route_started，5秒后nav_arrived
+Mock Vehicle会模拟：1秒后nav_route_started（导航步骤完成）。nav_arrived是可选的（默认关闭，PRD v1.7）。
 
 #### 示例4：知识查询（Hybrid RAG）
 
