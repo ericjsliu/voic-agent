@@ -199,8 +199,12 @@ async def lifespan(app: FastAPI):
         "chitchat": ChitchatAdapter(),
     }
     
-    # Planner
-    app_state.planner = Planner(nav_adapter=app_state.adapters["navigation"])
+    # Planner (wrapped with capability awareness)
+    base_planner = Planner(nav_adapter=app_state.adapters["navigation"])
+    app_state.planner = CapabilityAwarePlanner(
+        base_planner=base_planner,
+        audit_logger=app_state.audit_logger
+    )
     
     # Orchestrator
     app_state.orchestrator = Orchestrator(
@@ -402,15 +406,20 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         event_type=AuditEventType.PLANNER_START
     )
     
-    # 规划TaskGraph（带能力档案过滤）
+    # 规划TaskGraph（带能力档案过滤，会发出unsupported audit events）
     taskgraph: TaskGraph = await app_state.planner.plan(
         user_utterance=request.utterance,
         context=context,
-        capability_profile=capability_profile
+        capability_profile=capability_profile,
+        trace_id=trace_id,
+        session_id=session_info.session_id
     )
     
-    # Inject trace_id into TaskGraph
-    taskgraph.trace_id = trace_id
+    # Inject trace_id into TaskGraph (if not already set)
+    if not taskgraph.trace_id:
+        taskgraph.trace_id = trace_id
+    if not taskgraph.session_id:
+        taskgraph.session_id = session_info.session_id
     
     # Audit: planner_end
     planner_duration = int((datetime.utcnow() - planner_start).total_seconds() * 1000)

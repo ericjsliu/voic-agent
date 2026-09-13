@@ -81,6 +81,9 @@ class Orchestrator:
         
         # 待下行的TaskGraph（仅orchestrator验证后的版本）
         self.pending_downlink: Optional[TaskGraph] = None
+        
+        # 当前trace_id（用于writeback）
+        self.current_trace_id: Optional[str] = None
     
     async def execute_taskgraph(
         self,
@@ -96,6 +99,9 @@ class Orchestrator:
         Returns:
             执行结果摘要
         """
+        # Store trace_id for writeback generation
+        self.current_trace_id = taskgraph.trace_id
+        
         # 验证TaskGraph
         await self._validate_taskgraph(taskgraph)
         
@@ -197,6 +203,7 @@ class Orchestrator:
                                     task_id=task.task_id,
                                     step_id=state.step.step_id,
                                     branch_id=task.branch_id,
+                                    trace_id=self.current_trace_id,
                                     event=WritebackEvent.CONFIRM_RESULT,
                                     status=WritebackStatus.TIMEOUT,
                                     reason="L2 confirmation timeout - operation cancelled",
@@ -285,8 +292,9 @@ class Orchestrator:
                         task_id=task.task_id,
                         step_id=step.step_id,
                         branch_id=task.branch_id,
+                        trace_id=self.current_trace_id,
                         event=WritebackEvent.CONFIRM_RESULT,
-                        status=WritebackStatus.PENDING if hasattr(WritebackStatus, 'PENDING') else 'pending',
+                        status=WritebackStatus.PENDING,
                         reason=f"Waiting for user confirmation: {step.description or getattr(step.action, 'action', 'L2 action')}",
                         ts=datetime.utcnow().isoformat() + "Z"
                     )
@@ -323,8 +331,9 @@ class Orchestrator:
                         task_id=task.task_id,
                         step_id=step.step_id,
                         branch_id=task.branch_id,
+                        trace_id=self.current_trace_id,
                         event=WritebackEvent.KNOWLEDGE_DONE,
-                        status=WritebackStatus.SUCCESS if result.get("status") == "success" else WritebackStatus.FAILED,
+                        status=WritebackStatus.ACCEPTED if result.get("status") == "success" else WritebackStatus.FAILED,
                         reason=result.get("error"),
                         ts=datetime.utcnow().isoformat() + "Z"
                     )
@@ -377,9 +386,9 @@ class Orchestrator:
                 step_state.error = writeback.reason or "User declined"
                 task_state.failed_steps.add(writeback.step_id)
         
-        # 处理其他事件
+        # 处理其他事件 (unified status: accepted/rejected/failed)
         elif writeback.event == WritebackEvent.VEHICLE_ACK:
-            if writeback.status == WritebackStatus.SUCCESS:
+            if writeback.status == WritebackStatus.ACCEPTED:
                 step_state.status = StepStatus.COMPLETED
                 task_state.completed_steps.add(writeback.step_id)
             else:
@@ -393,12 +402,12 @@ class Orchestrator:
             
             if writeback.event == WritebackEvent.NAV_ROUTE_STARTED:
                 # P0: navigation step COMPLETE when route started (or nav_failed)
-                if writeback.status == WritebackStatus.SUCCESS:
+                if writeback.status == WritebackStatus.ACCEPTED:
                     step_state.status = StepStatus.COMPLETED
                     task_state.completed_steps.add(writeback.step_id)
                     print(f"[Orchestrator] Navigation step {writeback.step_id} COMPLETED on route_started")
                 else:
-                    # nav_failed
+                    # nav_failed (rejected or failed)
                     step_state.status = StepStatus.FAILED
                     step_state.error = writeback.reason or "Navigation failed"
                     task_state.failed_steps.add(writeback.step_id)
@@ -410,7 +419,7 @@ class Orchestrator:
                 # Could potentially notify via TTS here in the future
         
         elif writeback.event in [WritebackEvent.MEDIA_ACK, WritebackEvent.CALENDAR_ACK]:
-            if writeback.status == WritebackStatus.SUCCESS:
+            if writeback.status == WritebackStatus.ACCEPTED:
                 step_state.status = StepStatus.COMPLETED
                 task_state.completed_steps.add(writeback.step_id)
             else:

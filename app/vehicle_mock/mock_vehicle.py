@@ -95,37 +95,36 @@ class MockVehicle:
                 
                 print(f"[MockVehicle] Step {step_id}: {domain}.{action} (level={level})")
                 
-                # L2需要确认
+                # L2需要确认 - NO auto-accept (merge-blocking fix #1)
                 if level == "L2":
-                    # Mock: 1秒后自动确认接受
-                    asyncio.create_task(
-                        self._send_confirm_result(task_id, step_id, branch_id, trace_id, accepted=True, delay=1.0)
-                    )
+                    # L2 steps require explicit UI/API confirmation
+                    # Mock vehicle does NOT auto-accept - only responds to confirm_result from agent
+                    print(f"[MockVehicle] L2 step {step_id} requires explicit confirmation (no auto-accept)")
                     continue
                 
-                # L0/L1: 立即发送ack
+                # L0/L1: 立即发送ack (unified status: accepted/rejected/failed)
                 if domain == "vehicle":
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, trace_id, "vehicle_ack", "success", delay=0.5)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "vehicle_ack", "accepted", delay=0.5)
                     )
                 elif domain == "navigation":
                     # PRD v1.7 / detailed-v2.0.1: Always emit nav_route_started (completes the step)
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, trace_id, "nav_route_started", "success", delay=1.0)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "nav_route_started", "accepted", delay=1.0)
                     )
                     
                     # nav_arrived is optional (default off) - only for demo purposes
                     if self.enable_nav_arrived:
                         asyncio.create_task(
-                            self._send_writeback(task_id, step_id, branch_id, trace_id, "nav_arrived", "success", delay=8.0)
+                            self._send_writeback(task_id, step_id, branch_id, trace_id, "nav_arrived", "accepted", delay=8.0)
                         )
                 elif domain == "media":
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, trace_id, "media_ack", "success", delay=0.5)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "media_ack", "accepted", delay=0.5)
                     )
                 elif domain == "calendar":
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, trace_id, "calendar_ack", "success", delay=0.5)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "calendar_ack", "accepted", delay=0.5)
                     )
     
     async def _send_writeback(

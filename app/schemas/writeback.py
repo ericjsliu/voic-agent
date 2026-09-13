@@ -19,14 +19,17 @@ class WritebackEvent(str, Enum):
 
 
 class WritebackStatus(str, Enum):
-    """写回状态"""
-    SUCCESS = "success"
-    FAILED = "failed"
+    """写回状态（unified enum - merge-blocking fix #2）
+    
+    For vehicle_ack / nav / media / calendar: accepted | rejected | failed
+    For L2 confirm_result: pending | accepted | declined | timeout
+    """
+    ACCEPTED = "accepted"  # 车辆接受并执行 / 用户确认接受
     REJECTED = "rejected"  # 车辆拒绝（如档位不在P）
-    ACCEPTED = "accepted"  # 用户确认接受
-    DECLINED = "declined"  # 用户确认拒绝
-    TIMEOUT = "timeout"  # 确认超时
-    PENDING = "pending"  # L2等待确认中
+    FAILED = "failed"     # 执行失败（技术错误）
+    DECLINED = "declined"  # L2: 用户确认拒绝
+    TIMEOUT = "timeout"    # L2: 确认超时
+    PENDING = "pending"    # L2: 等待用户确认（orchestrator发出）
 
 
 class WritebackEnvelope(BaseModel):
