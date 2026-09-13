@@ -189,13 +189,13 @@ async def lifespan(app: FastAPI):
     # RAG Client
     app_state.rag_client = HybridRAGClient()
     
-    # Adapters
+    # Adapters (P0 exit #5: pass audit_logger to knowledge adapter)
     app_state.adapters = {
         "vehicle": VehicleAdapter(),
         "navigation": NavigationAdapter(),
         "media": MediaAdapter(),
         "calendar": CalendarAdapter(),
-        "knowledge": KnowledgeAdapter(app_state.rag_client),
+        "knowledge": KnowledgeAdapter(app_state.rag_client, audit_logger=app_state.audit_logger),
         "chitchat": ChitchatAdapter(),
     }
     
@@ -206,7 +206,7 @@ async def lifespan(app: FastAPI):
         audit_logger=app_state.audit_logger
     )
     
-    # Orchestrator
+    # Orchestrator (P0 exit #5: pass audit_logger)
     app_state.orchestrator = Orchestrator(
         vehicle_adapter=app_state.adapters["vehicle"],
         nav_adapter=app_state.adapters["navigation"],
@@ -214,6 +214,7 @@ async def lifespan(app: FastAPI):
         calendar_adapter=app_state.adapters["calendar"],
         knowledge_adapter=app_state.adapters["knowledge"],
         chitchat_adapter=app_state.adapters["chitchat"],
+        audit_logger=app_state.audit_logger
     )
     
     # MQTT Client

@@ -127,6 +127,90 @@ HYBRID_RAG_API_KEY=  # 可选
 
 **⚠️ 安全提示**: 不要将真实的API Key提交到代码仓库！使用 `.env` 文件（已在 `.gitignore` 中）存储敏感信息。
 
+---
+
+## P0 Exit Checklist（完整测试场景）
+
+本节提供P0出口完整测试覆盖，映射PRD S-*（场景）和T-*（技术）测试用例到运行命令。
+
+### ✅ 自动化测试场景
+
+运行全部P0场景测试：
+```bash
+pytest tests/test_scenarios_p0_exit.py -v
+```
+
+各场景说明：
+
+| 场景ID | 描述 | 测试命令 |
+|--------|------|----------|
+| **S-1** | 指代消解（"它"→最近POI） | `pytest tests/test_scenarios_p0_exit.py::test_s1_coreference_resolution -v` |
+| **S-2** | 重写/取消活跃任务（"不，去咖啡馆"） | `pytest tests/test_scenarios_p0_exit.py::test_s2_rewrite_cancel_active_task -v` |
+| **S-3** | 拒绝规则（zone/低置信度/side-chat） | `pytest tests/test_scenarios_p0_exit.py::test_s3_refusal_* -v` |
+| **S-4** | 知识引用命中/未命中 | `pytest tests/test_scenarios_p0_exit.py::test_s4_knowledge_citation_* -v` |
+| **S-5** | 档案切换中断MQTT下行 | `pytest tests/test_scenarios_p0_exit.py::test_s5_profile_switch_gates_downlink -v` |
+| **S-6** | 驾驶员切换清空实体缓冲区 | `pytest tests/test_scenarios_p0_exit.py::test_s6_driver_switch_clears_entities -v` |
+| **S-7** | 多意图并行步骤（L0\|\|L0） | `pytest tests/test_scenarios_p0_exit.py::test_s7_multi_intent_parallel_steps -v` |
+| **S-8** | L0\|\|L2并行执行 | `pytest tests/test_scenarios_p0_exit.py::test_s8_l0_l2_parallel -v` |
+| **T-1** | nav_route_started完成导航步骤 | `pytest tests/test_scenarios_p0_exit.py::test_t1_nav_route_started_completion -v` |
+
+### 🎬 手动/Web UI测试场景
+
+启动服务后在Web UI中测试（http://localhost:5173）：
+
+| 场景ID | 操作步骤 | 预期结果 | 审计事件 |
+|--------|----------|----------|----------|
+| **S-1** | 1. "导航到咖啡馆"<br>2. "取消它" | "它"解析为咖啡馆并取消 | `rewrite`, `cancel` |
+| **S-2** | 1. "导航到机场"<br>2. "不，去咖啡馆" | 重写为咖啡馆，复用task_id | `rewrite` |
+| **S-3-zone** | 1. 设置车辆位置在受限区<br>2. "开门" | 拒绝执行，TTS提示受限区域 | `refusal` |
+| **S-3-conf** | 模拟低置信度查询 | 拒绝执行，TTS提示重新说明 | `refusal` |
+| **S-4-hit** | "空调温度范围" | 返回答案+引用（手册12页） | `rag_hit` |
+| **S-4-miss** | "不存在的查询" | 无答案，TTS"未找到引用" | `rag_miss` |
+| **S-5** | 1. 切换车型（Model A→B）<br>2. 立即发送"打开天窗" | 等待profile_ready后才执行 | `profile_state: switching` → `ready` |
+| **S-6** | 1. "导航到咖啡馆"<br>2. 切换驾驶员<br>3. "取消它" | 新驾驶员无法解析"它" | 实体缓冲区清空 |
+| **S-7** | "打开车窗并播放音乐" | 两个L0步骤并行执行 | 两个`vehicle_ack` |
+| **S-8** | "打开车窗并开门" | 窗立即执行，门等15s确认 | `confirm_request` + 15s倒计时 |
+| **T-1** | "导航到机场" | route_started→步骤完成<br>arrived可选 | `nav_route_started` |
+| **L2-timeout** | "开门"→等待15秒不确认 | 超时取消，TTS提示 | `confirm_request` → `confirm_timeout` |
+| **L2-decline** | "开门"→点击"取消操作" | 拒绝确认，无执行 | `confirm_request` → `confirm_declined` |
+| **L2-accept** | "开门"→点击"确认执行" | 发布到MQTT，收vehicle_ack | `confirm_accepted` → `dispatch` → `vehicle_ack` |
+| **Mixed-unsupported** | Model A: "打开车窗和天窗" | 窗执行，天窗TTS"不支持" | `unsupported` + `vehicle_ack` |
+| **Trace-query** | 任意对话后查询trace_id | GET /trace/{trace_id} | 返回完整审计事件链 |
+
+### 📊 审计事件验证
+
+查询完整审计链：
+```bash
+# 1. 在Web UI中执行对话，复制trace_id（每条消息显示）
+# 2. 查询审计事件
+curl http://localhost:8000/trace/{trace_id} | jq .
+
+# 预期事件链示例（L2确认流程）：
+# utterance_received → assemble_done → planner_start → planner_end 
+# → dispatch → confirm_request → confirm_accepted → dispatch 
+# → vehicle_ack → nav_route_started
+```
+
+审计事件类型完整列表（20+）：
+- `utterance_received`, `assemble_done`, `planner_start`, `planner_end`
+- `dispatch`, `dispatch_blocked`
+- `confirm_request`, `confirm_accepted`, `confirm_declined`, `confirm_timeout`
+- `vehicle_ack`, `nav_route_started`, `nav_failed`, `nav_arrived`
+- `rag_hit`, `rag_miss`
+- `unsupported`, `refusal`, `rewrite`, `cancel`
+- `tts_emit`, `schema_repair`, `model_tier_change`
+
+### 🔍 P0出口标准
+
+所有场景必须满足：
+1. ✅ **L2确认后发布→vehicle_ack**: L2不立即本地执行，必须通过MQTT vehicle_ack完成
+2. ✅ **WS l2_confirm包含trace_id**: 前端→后端确认消息必须携带trace_id
+3. ✅ **混合指令保留支持步骤**: 能做的先做，只有不支持的动作替换为TTS
+4. ✅ **场景覆盖**: S-1至S-8 + T-1全部通过（自动化或手动）
+5. ✅ **审计事件完整**: confirm_*, rag_*, unsupported, vehicle_ack, nav_route_started路径全部发射
+
+---
+
 ## 快速启动
 
 ### 使用Docker Compose（一键启动）

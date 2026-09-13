@@ -59,7 +59,7 @@ class ManualMetadata(Base):
     title = Column(Text)
     content = Column(Text, nullable=False)
     embedding = Column(Vector(1536))  # OpenAI embedding size
-    metadata = Column(JSONB)
+    additional_metadata = Column(JSONB)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     __table_args__ = (
@@ -120,7 +120,7 @@ class SpatiotemporalEvent(Base):
     location_lon = Column(Float)
     summary = Column(Text, nullable=False)  # 结构化摘要，非原始对话
     entities = Column(JSONB)  # POI、媒体、车辆对象等
-    metadata = Column(JSONB)
+    additional_metadata = Column(JSONB)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     __table_args__ = (
@@ -155,7 +155,7 @@ class AuditEventLog(Base):
     citations_count = Column(Integer)
     
     # 额外元数据
-    metadata = Column(JSONB)
+    additional_metadata = Column(JSONB)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
     
     __table_args__ = (
         Index('idx_trace_timestamp', 'trace_id', 'timestamp'),

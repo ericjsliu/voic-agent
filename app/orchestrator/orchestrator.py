@@ -65,7 +65,8 @@ class Orchestrator:
         calendar_adapter: CalendarAdapter,
         knowledge_adapter: KnowledgeAdapter,
         chitchat_adapter: ChitchatAdapter,
-        shadow_state: Optional[Dict[str, Any]] = None
+        shadow_state: Optional[Dict[str, Any]] = None,
+        audit_logger=None
     ):
         self.adapters = {
             DomainType.VEHICLE: vehicle_adapter,
@@ -88,6 +89,10 @@ class Orchestrator:
         # L2确认后待发布的步骤（P0 fix #1）
         self.pending_l2_publish: Optional[TaskGraph] = None
         self.mqtt_publish_callback: Optional[callable] = None
+        
+        # Audit logger for event tracking (P0 exit #5)
+        self.audit_logger = audit_logger
+        self.current_session_id: Optional[str] = None
     
     async def execute_taskgraph(
         self,
@@ -103,8 +108,9 @@ class Orchestrator:
         Returns:
             执行结果摘要
         """
-        # Store trace_id for writeback generation
+        # Store trace_id and session_id for writeback and audit generation
         self.current_trace_id = taskgraph.trace_id
+        self.current_session_id = taskgraph.session_id
         
         # 验证TaskGraph
         await self._validate_taskgraph(taskgraph)
@@ -304,6 +310,20 @@ class Orchestrator:
                     )
                     await writeback_callback(writeback)
                 
+                # Emit audit event: confirm_request (P0 exit #5)
+                if self.audit_logger and self.current_trace_id and self.current_session_id:
+                    from ..audit import AuditEventType
+                    self.audit_logger.create_event(
+                        trace_id=self.current_trace_id,
+                        session_id=self.current_session_id,
+                        event_type=AuditEventType.CONFIRM_REQUEST,
+                        task_id=task.task_id,
+                        step_id=step.step_id,
+                        branch_id=task.branch_id,
+                        action=getattr(step.action, 'action', 'L2 action'),
+                        metadata={"timeout_seconds": self.L2_CONFIRM_TIMEOUT}
+                    )
+                
                 print(f"[Orchestrator] L2 action {step.step_id} waiting for confirmation (NOT executing)")
                 return
             
@@ -312,6 +332,8 @@ class Orchestrator:
                 "shadow_state": self.shadow_state,
                 "task_id": task.task_id,
                 "branch_id": task.branch_id,
+                "trace_id": self.current_trace_id,  # P0 exit #5: pass trace_id to adapters
+                "session_id": self.current_session_id,  # P0 exit #5: pass session_id to adapters
             }
             
             result = await adapter.execute(step, context)
@@ -373,6 +395,18 @@ class Orchestrator:
                 print(f"[Orchestrator] L2 confirmed, publishing for vehicle execution: {writeback.step_id}")
                 step_state.status = StepStatus.EXECUTING
                 
+                # Emit audit event: confirm_accepted (P0 exit #5)
+                if self.audit_logger and writeback.trace_id:
+                    from ..audit import AuditEventType
+                    self.audit_logger.create_event(
+                        trace_id=writeback.trace_id,
+                        session_id=self.current_session_id or "",
+                        event_type=AuditEventType.CONFIRM_ACCEPTED,
+                        task_id=writeback.task_id,
+                        step_id=writeback.step_id,
+                        branch_id=writeback.branch_id
+                    )
+                
                 # 发布confirmed L2 step到MQTT（单独发布该步骤）
                 await self._publish_confirmed_l2_step(
                     task_state.task,
@@ -388,16 +422,58 @@ class Orchestrator:
                 step_state.status = StepStatus.CANCELLED
                 step_state.error = writeback.reason or "User declined"
                 task_state.failed_steps.add(writeback.step_id)
+                
+                # Emit audit event: confirm_declined or confirm_timeout (P0 exit #5)
+                if self.audit_logger and writeback.trace_id:
+                    from ..audit import AuditEventType
+                    event_type = (AuditEventType.CONFIRM_TIMEOUT if writeback.status == WritebackStatus.TIMEOUT
+                                  else AuditEventType.CONFIRM_DECLINED)
+                    self.audit_logger.create_event(
+                        trace_id=writeback.trace_id,
+                        session_id=self.current_session_id or "",
+                        event_type=event_type,
+                        task_id=writeback.task_id,
+                        step_id=writeback.step_id,
+                        branch_id=writeback.branch_id,
+                        reason=writeback.reason
+                    )
         
         # 处理其他事件 (unified status: accepted/rejected/failed)
         elif writeback.event == WritebackEvent.VEHICLE_ACK:
             if writeback.status == WritebackStatus.ACCEPTED:
                 step_state.status = StepStatus.COMPLETED
                 task_state.completed_steps.add(writeback.step_id)
+                
+                # Emit audit event: vehicle_ack (P0 exit #5)
+                if self.audit_logger and writeback.trace_id:
+                    from ..audit import AuditEventType
+                    self.audit_logger.create_event(
+                        trace_id=writeback.trace_id,
+                        session_id=self.current_session_id or "",
+                        event_type=AuditEventType.VEHICLE_ACK,
+                        task_id=writeback.task_id,
+                        step_id=writeback.step_id,
+                        branch_id=writeback.branch_id,
+                        status="accepted"
+                    )
             else:
                 step_state.status = StepStatus.FAILED
                 step_state.error = writeback.reason
                 task_state.failed_steps.add(writeback.step_id)
+                
+                # Emit audit event: vehicle_ack failed (P0 exit #5)
+                if self.audit_logger and writeback.trace_id:
+                    from ..audit import AuditEventType
+                    self.audit_logger.create_event(
+                        trace_id=writeback.trace_id,
+                        session_id=self.current_session_id or "",
+                        event_type=AuditEventType.VEHICLE_ACK,
+                        task_id=writeback.task_id,
+                        step_id=writeback.step_id,
+                        branch_id=writeback.branch_id,
+                        status="failed",
+                        reason=writeback.reason
+                    )
         
         elif writeback.event in [WritebackEvent.NAV_ROUTE_STARTED, WritebackEvent.NAV_ARRIVED, WritebackEvent.NAV_REROUTED]:
             # 导航事件 (PRD v1.7 / detailed-v2.0.1)
@@ -409,6 +485,18 @@ class Orchestrator:
                     step_state.status = StepStatus.COMPLETED
                     task_state.completed_steps.add(writeback.step_id)
                     print(f"[Orchestrator] Navigation step {writeback.step_id} COMPLETED on route_started")
+                    
+                    # Emit audit event: nav_route_started (P0 exit #5)
+                    if self.audit_logger and writeback.trace_id:
+                        from ..audit import AuditEventType
+                        self.audit_logger.create_event(
+                            trace_id=writeback.trace_id,
+                            session_id=self.current_session_id or "",
+                            event_type=AuditEventType.NAV_ROUTE_STARTED,
+                            task_id=writeback.task_id,
+                            step_id=writeback.step_id,
+                            branch_id=writeback.branch_id
+                        )
                 else:
                     # nav_failed (rejected or failed)
                     step_state.status = StepStatus.FAILED

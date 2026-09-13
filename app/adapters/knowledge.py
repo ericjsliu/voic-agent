@@ -10,8 +10,9 @@ from ..rag_client import HybridRAGClient, RAGHit
 class KnowledgeAdapter(BaseDomainAdapter):
     """知识查询适配器（仅文本，调用外部Hybrid RAG服务）"""
     
-    def __init__(self, rag_client: HybridRAGClient):
+    def __init__(self, rag_client: HybridRAGClient, audit_logger=None):
         self.rag_client = rag_client
+        self.audit_logger = audit_logger
     
     async def validate(self, step: Step, shadow_state: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """验证知识查询步骤"""
@@ -37,6 +38,21 @@ class KnowledgeAdapter(BaseDomainAdapter):
         if not hits:
             # **Citation Enforcement**: 无引用则不能作为手册权威回答
             print(f"[KnowledgeAdapter] No citations found for query: {action.query}")
+            
+            # Emit audit event: rag_miss (P0 exit #5)
+            if self.audit_logger:
+                trace_id = context.get("trace_id") or context.get("task_id", "")
+                session_id = context.get("session_id", "")
+                if trace_id:
+                    from ..audit import AuditEventType
+                    self.audit_logger.create_event(
+                        trace_id=trace_id,
+                        session_id=session_id,
+                        event_type=AuditEventType.RAG_MISS,
+                        query=action.query,
+                        metadata={"model_filter": action.model_filter, "version_filter": action.version_filter}
+                    )
+            
             return {
                 "step_id": step.step_id,
                 "domain": "knowledge",
@@ -84,6 +100,20 @@ class KnowledgeAdapter(BaseDomainAdapter):
             "citations": citations,  # 必须包含引用
             "status": "success"
         }
+        
+        # Emit audit event: rag_hit (P0 exit #5)
+        if self.audit_logger:
+            trace_id = context.get("trace_id") or context.get("task_id", "")
+            session_id = context.get("session_id", "")
+            if trace_id:
+                from ..audit import AuditEventType
+                self.audit_logger.create_event(
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    event_type=AuditEventType.RAG_HIT,
+                    query=action.query,
+                    metadata={"citation_count": len(citations), "top_score": citations[0]["score"] if citations else 0}
+                )
         
         print(f"[KnowledgeAdapter] Query successful with {len(citations)} citations")
         return result
