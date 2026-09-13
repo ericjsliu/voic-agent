@@ -3,6 +3,7 @@
 
 from .schema import CapabilityProfile, ActionCapability, FeatureFlags
 from .loader import CapabilityLoader, get_capability_loader
+from .profile_switcher import ProfileSwitchingManager, ProfileState
 
 __all__ = [
     "CapabilityProfile",
@@ -10,4 +11,6 @@ __all__ = [
     "FeatureFlags",
     "CapabilityLoader",
     "get_capability_loader",
+    "ProfileSwitchingManager",
+    "ProfileState",
 ]

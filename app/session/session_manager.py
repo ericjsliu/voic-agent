@@ -7,7 +7,7 @@ import uuid
 
 from ..schemas.context import SessionInfo
 from ..memory import BaseMemoryStore
-from ..capabilities import CapabilityProfile, get_capability_loader
+from ..capabilities import CapabilityProfile, get_capability_loader, ProfileSwitchingManager
 
 
 class SessionManager:
@@ -17,12 +17,19 @@ class SessionManager:
         self,
         memory_store: BaseMemoryStore,
         pg_store=None,
-        entity_buffer=None
+        entity_buffer=None,
+        redis_client=None
     ):
         self.memory_store = memory_store
         self.pg_store = pg_store
         self.entity_buffer = entity_buffer
         self.active_sessions: Dict[str, SessionInfo] = {}
+        
+        # Profile切换管理器（detailed-v1.5）
+        self.profile_switcher = ProfileSwitchingManager(
+            redis_client=redis_client,
+            pg_store=pg_store
+        ) if redis_client else None
     
     async def create_session(
         self,
@@ -30,18 +37,9 @@ class SessionManager:
         vehicle_id: Optional[str] = None,
         vehicle_model: Optional[str] = None
     ) -> SessionInfo:
-        """创建新会话"""
+        """创建新会话（使用Profile Switcher进行安全加载）"""
         session_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat() + "Z"
-        
-        # 加载能力档案
-        loader = get_capability_loader()
-        model_id = vehicle_model or "model_a"
-        capability_profile = loader.get_profile(model_id)
-        
-        if not capability_profile:
-            print(f"[SessionManager] WARNING: Profile not found for {model_id}, using default")
-            capability_profile = loader.get_default_profile()
         
         session_info = SessionInfo(
             session_id=session_id,
@@ -53,20 +51,32 @@ class SessionManager:
         
         self.active_sessions[session_id] = session_info
         
-        # 存储能力档案（扩展数据）
-        if capability_profile:
-            await self.memory_store.set_json(
-                f"capability_profile:{session_id}",
-                capability_profile.model_dump(),
-                expire=3600 * 24
-            )
-        
-        # 持久化（可选）
+        # 持久化会话信息
         await self.memory_store.set_json(
             f"session:{session_id}",
             session_info.model_dump(),
             expire=3600 * 24  # 24小时
         )
+        
+        # 使用Profile Switcher加载能力档案（源数据：PostgreSQL -> Fallback: file）
+        model_id = vehicle_model or "model_a"
+        if self.profile_switcher:
+            result = await self.profile_switcher.switch_profile(
+                session_id=session_id,
+                model_id=model_id
+            )
+            if not result["success"]:
+                print(f"[SessionManager] WARNING: Profile switch failed: {result['message']}")
+        else:
+            # Fallback: 直接从文件加载（无profile_switcher时）
+            loader = get_capability_loader()
+            capability_profile = loader.get_profile(model_id)
+            if capability_profile:
+                await self.memory_store.set_json(
+                    f"capability_profile:{session_id}",
+                    capability_profile.model_dump(),
+                    expire=3600 * 24
+                )
         
         return session_info
     
@@ -163,3 +173,58 @@ class SessionManager:
         # 清理实体缓冲区
         if self.entity_buffer:
             self.entity_buffer.clear_all(session_id)
+    
+    async def switch_vehicle_model(
+        self,
+        session_id: str,
+        new_model_id: str,
+        hardware_option: Optional[str] = None,
+        config_hash: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """切换车型能力档案（detailed-v1.5 Profile Switching Gate）
+        
+        安全切换流程：
+        1. 进入profile_switching状态（暂停MQTT下行）
+        2. 从PostgreSQL加载新profile（source of truth）
+        3. 验证profile有效性
+        4. 绑定到session
+        5. 进入profile_ready状态（恢复MQTT下行）
+        
+        Returns:
+            {
+                "success": bool,
+                "state": "ready" | "switching" | "failed",
+                "profile": {...} | None,
+                "message": str
+            }
+        """
+        if not self.profile_switcher:
+            return {
+                "success": False,
+                "state": "failed",
+                "profile": None,
+                "message": "Profile switcher未初始化"
+            }
+        
+        print(f"[SessionManager] Switching vehicle model to {new_model_id} for session {session_id}")
+        
+        result = await self.profile_switcher.switch_profile(
+            session_id=session_id,
+            model_id=new_model_id,
+            hardware_option=hardware_option,
+            config_hash=config_hash
+        )
+        
+        return result
+    
+    def is_profile_ready(self, session_id: str) -> bool:
+        """检查profile是否ready（可以执行MQTT下行）"""
+        if not self.profile_switcher:
+            return True  # 无switcher时默认允许
+        return self.profile_switcher.is_profile_ready(session_id)
+    
+    def get_profile_state(self, session_id: str) -> str:
+        """获取profile状态（ready/switching/failed）"""
+        if not self.profile_switcher:
+            return "ready"
+        return self.profile_switcher.get_profile_state(session_id).value

@@ -166,11 +166,12 @@ async def lifespan(app: FastAPI):
         app_state.rewrite_cancel_manager = RewriteCancelManager(redis_client)
         print("[Agent] Rewrite/Cancel Manager initialized")
     
-    # Session
+    # Session (with Profile Switcher support)
     app_state.session_manager = SessionManager(
         app_state.memory_store,
         pg_store=app_state.pg_store,
-        entity_buffer=app_state.entity_buffer
+        entity_buffer=app_state.entity_buffer,
+        redis_client=redis_client  # 用于ProfileSwitchingManager
     )
     app_state.context_assembler = ContextAssembler(
         app_state.memory_store,
@@ -387,6 +388,12 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     async def execute_and_publish():
         """执行并发布TaskGraph"""
         try:
+            # 检查profile是否ready（detailed-v1.5 gate）
+            if not app_state.session_manager.is_profile_ready(session_info.session_id):
+                profile_state = app_state.session_manager.get_profile_state(session_info.session_id)
+                print(f"[Agent] MQTT downlink BLOCKED: profile state = {profile_state}")
+                return
+            
             # 自定义writeback回调：广播到WebSocket
             async def writeback_callback(writeback):
                 await ws_manager.broadcast_to_session(
@@ -404,7 +411,12 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             )
             print(f"[Agent] TaskGraph execution result: {result}")
             
-            # 发布到MQTT下行
+            # 再次检查profile ready（防止执行期间切换）
+            if not app_state.session_manager.is_profile_ready(session_info.session_id):
+                print(f"[Agent] MQTT downlink BLOCKED: profile switched during execution")
+                return
+            
+            # 发布到MQTT下行（仅当profile ready）
             publish_taskgraph(taskgraph)
             
             # 提交内存写入
@@ -436,6 +448,63 @@ async def switch_driver(session_id: str, driver_id: str):
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+class SwitchVehicleModelRequest(BaseModel):
+    """切换车型请求"""
+    model_id: str
+    hardware_option: Optional[str] = None
+    config_hash: Optional[str] = None
+
+
+@app.post("/session/{session_id}/switch_vehicle_model")
+async def switch_vehicle_model(session_id: str, request: SwitchVehicleModelRequest):
+    """切换车型能力档案（detailed-v1.5 Profile Switching Gate）
+    
+    安全切换流程：
+    1. 进入profile_switching状态（暂停MQTT下行）
+    2. 从PostgreSQL加载新profile
+    3. 验证并绑定到session
+    4. 进入profile_ready状态（恢复MQTT下行）
+    """
+    result = await app_state.session_manager.switch_vehicle_model(
+        session_id=session_id,
+        new_model_id=request.model_id,
+        hardware_option=request.hardware_option,
+        config_hash=request.config_hash
+    )
+    
+    # 广播profile状态变化到WebSocket
+    await ws_manager.broadcast_to_session(
+        session_id,
+        {
+            "type": "profile_state",
+            "data": {
+                "state": result["state"],
+                "message": result["message"],
+                "profile": result.get("profile")
+            }
+        }
+    )
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    return result
+
+
+@app.get("/session/{session_id}/profile_state")
+async def get_profile_state(session_id: str):
+    """获取当前profile状态（ready/switching/failed）"""
+    state = app_state.session_manager.get_profile_state(session_id)
+    is_ready = app_state.session_manager.is_profile_ready(session_id)
+    
+    return {
+        "session_id": session_id,
+        "state": state,
+        "is_ready": is_ready,
+        "mqtt_downlink_allowed": is_ready
+    }
 
 
 @app.websocket("/ws/{session_id}")

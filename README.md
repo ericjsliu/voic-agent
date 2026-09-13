@@ -43,6 +43,14 @@ ASR文本 → 上下文组装 → 规划器(LLM) → 编排器(状态机) → �
    - Model B (Premium): 完整功能包括天窗、座椅加热、电动后备箱
    - 不支持的动作触发TTS"不支持"提示而非执行
    - 车辆连接时报告model_id → Session加载档案 → Planner过滤动作 → 仅支持的动作进入TaskGraph → Adapter验证 → MQTT发布
+   
+   **Profile切换门控（detailed-v1.5）**：
+   - 车型/配置变更时进入`profile_switching`状态
+   - **暂停所有MQTT下行执行边**，直到新Profile从PostgreSQL（source of truth）加载并绑定到session
+   - 发出`profile_ready`通知后恢复MQTT下行
+   - 云端**不猜测trim**，仅使用车辆报告的model+config
+   - Web UI选择车型时触发相同的切换门控流程，显示switching/ready状态
+   - 确保不会用旧whitelist执行新对话
 
 7. **上下文增强（Context Features）**
    - **实体缓冲区**: 分钟级热数据（POI、媒体、车辆对象、候选列表），Context Assemble时注入

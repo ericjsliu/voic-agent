@@ -93,3 +93,45 @@
   color: #64b5f6;
   font-style: italic;
 }
+
+.model-select-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.model-select-container select {
+  flex: 1;
+}
+
+.profile-state {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.profile-state-ready {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.profile-state-switching {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ff9800;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.profile-state-failed {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

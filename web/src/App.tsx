@@ -23,6 +23,7 @@ function App() {
   const [currentTaskGraph, setCurrentTaskGraph] = useState<any>(null)
   const [pendingL2, setPendingL2] = useState<any>(null)
   const [connected, setConnected] = useState(false)
+  const [profileState, setProfileState] = useState<'ready' | 'switching' | 'failed'>('ready')
   const [config, setConfig] = useState<ConnectionConfig>({
     baseUrl: 'http://localhost:8000',
     driverId: 'driver_001',
@@ -102,6 +103,23 @@ function App() {
             }])
           }
         }
+      } else if (data.type === 'profile_state') {
+        // 处理Profile状态变化（detailed-v1.5）
+        const { state, message } = data.data
+        setProfileState(state)
+        
+        const stateIcons = {
+          'switching': '⏳',
+          'ready': '✅',
+          'failed': '❌'
+        }
+        
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          type: 'system',
+          content: `${stateIcons[state as keyof typeof stateIcons] || '🔄'} ${message}`,
+          timestamp: new Date().toISOString()
+        }])
       }
     }
     
@@ -225,6 +243,45 @@ function App() {
     }
   }
 
+  const handleSwitchVehicleModel = async (newModelId: string) => {
+    if (!config.sessionId) {
+      console.error('No active session')
+      return
+    }
+
+    try {
+      setProfileState('switching')
+      
+      const response = await fetch(`${config.baseUrl}/session/${config.sessionId}/switch_vehicle_model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_id: newModelId
+        })
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || '切换失败')
+      }
+      
+      const data = await response.json()
+      setConfig(prev => ({ ...prev, vehicleModel: newModelId }))
+      
+      // WebSocket会收到profile_state消息自动更新状态
+      
+    } catch (error) {
+      console.error('Failed to switch vehicle model:', error)
+      setProfileState('failed')
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        type: 'system',
+        content: `❌ 切换车型失败: ${error}`,
+        timestamp: new Date().toISOString()
+      }])
+    }
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -241,6 +298,8 @@ function App() {
             config={config}
             onChange={setConfig}
             onCreateSession={handleCreateSession}
+            profileState={profileState}
+            onSwitchModel={handleSwitchVehicleModel}
           />
           <VehicleStatePanel
             telemetry={telemetry}
