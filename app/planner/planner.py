@@ -58,28 +58,45 @@ class Planner:
     async def plan(
         self,
         user_utterance: str,
-        context: DialogueContext
+        context: DialogueContext,
+        trace_id: Optional[str] = None
     ) -> TaskGraph:
         """生成任务图
         
         优先使用LLM生成，失败时fallback到规则。
+        
+        Args:
+            user_utterance: 用户输入
+            context: 对话上下文
+            trace_id: 跟踪ID（如果为None则生成）
         """
+        # 确保有trace_id（HOTFIX: 生产500）
+        if not trace_id:
+            trace_id = str(uuid.uuid4())
+        
         # 尝试LLM规划
         if self.llm_client:
             try:
-                return await self._plan_with_llm(user_utterance, context)
+                return await self._plan_with_llm(user_utterance, context, trace_id)
             except Exception as e:
                 print(f"LLM planning failed: {e}, falling back to rule-based")
         
         # Fallback: 规则式规划
-        return await self._plan_with_rules(user_utterance, context)
+        return await self._plan_with_rules(user_utterance, context, trace_id)
     
     async def _plan_with_llm(
         self,
         user_utterance: str,
-        context: DialogueContext
+        context: DialogueContext,
+        trace_id: str
     ) -> TaskGraph:
-        """使用LLM生成TaskGraph（schema-constrained）"""
+        """使用LLM生成TaskGraph（schema-constrained）
+        
+        Args:
+            user_utterance: 用户输入
+            context: 对话上下文
+            trace_id: 跟踪ID（HOTFIX: 必须注入到LLM输出中）
+        """
         
         # 构建系统提示
         system_prompt = self._build_system_prompt()
@@ -137,6 +154,9 @@ class Planner:
         
         taskgraph_data = json.loads(content)
         
+        # HOTFIX: 注入trace_id（LLM不会生成此字段）
+        taskgraph_data["trace_id"] = trace_id
+        
         # 后处理：解析POI
         await self._resolve_pois_in_taskgraph(taskgraph_data)
         
@@ -151,9 +171,16 @@ class Planner:
     async def _plan_with_rules(
         self,
         user_utterance: str,
-        context: DialogueContext
+        context: DialogueContext,
+        trace_id: str
     ) -> TaskGraph:
-        """规则式规划（LLM不可用时的fallback）"""
+        """规则式规划（LLM不可用时的fallback）
+        
+        Args:
+            user_utterance: 用户输入
+            context: 对话上下文
+            trace_id: 跟踪ID（HOTFIX: 必须包含在TaskGraph中）
+        """
         
         utterance_lower = user_utterance.lower()
         session_id = context.session_info.session_id
@@ -293,10 +320,12 @@ class Planner:
             user_intent=user_utterance
         )
         
+        # HOTFIX: 确保trace_id存在
         taskgraph = TaskGraph(
             tasks=[task],
             session_id=session_id,
-            timestamp=timestamp
+            timestamp=timestamp,
+            trace_id=trace_id
         )
         
         return taskgraph

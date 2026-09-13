@@ -22,10 +22,18 @@ class CapabilityAwarePlanner:
         trace_id: Optional[str] = None,
         session_id: Optional[str] = None
     ) -> TaskGraph:
-        """规划任务图（带能力档案过滤）"""
+        """规划任务图（带能力档案过滤）
         
-        # 调用基础planner
-        taskgraph = await self.base_planner.plan(user_utterance, context)
+        Args:
+            user_utterance: 用户输入
+            context: 对话上下文
+            capability_profile: 能力档案（可选）
+            trace_id: 跟踪ID（HOTFIX: 必须传递给base_planner）
+            session_id: 会话ID
+        """
+        
+        # HOTFIX: 调用基础planner，传递trace_id
+        taskgraph = await self.base_planner.plan(user_utterance, context, trace_id=trace_id)
         
         # 如果有能力档案，验证和过滤
         if capability_profile:
