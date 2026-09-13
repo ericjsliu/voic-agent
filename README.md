@@ -634,6 +634,80 @@ curl http://localhost:8000/health
 }
 ```
 
+---
+
+## 完整语音命令目录（P0座舱命令集）
+
+本节列出所有支持的语音命令，按领域分组。**粗体**表示Model B独有功能。
+
+### 🚗 Vehicle Domain (车辆控制)
+
+#### Windows & Sunroof
+- `打开车窗` / `关闭车窗` [L1] - 支持目标 (driver/passenger/all) + 百分比 (0-100%)
+- **`打开天窗` / `关闭天窗`** [L1, Model B only] - 需要车辆静止
+- **`打开遮阳板` / `关闭遮阳板`** [L1, Model B only]
+
+#### Doors & Security
+- `锁车门` / `解锁车门` [L2] - 需要P档 + 用户确认
+- **`儿童锁开启` / `儿童锁关闭`** [L2, Model B only] - 需要P档
+
+#### Storage & Charging
+- `打开后备箱` [L1] - 需要P档
+- **`打开前备箱`** [L1, Model B only] - 需要P档
+- **`打开充电口`** [L1, Model B only] - 需要P档
+
+#### Climate Control
+- `打开空调` / `关闭空调` [L0]
+- `设置温度到22度` [L0] - 范围: 16-30°C
+- `设置送风模式为吹面` [L0] - face/feet/both
+- `设置风速为5档` [L0] - 1-7档
+- `切换内循环` / `切换外循环` [L0]
+- `前挡风除霜` / `后挡风除霜` [L0]
+
+#### Seat Comfort (Model B Premium)
+- **`座椅加热1档`** [L0] - 0-3档
+- **`座椅通风2档`** [L0] - 0-3档
+- **`方向盘加热开启`** [L0]
+
+#### Lighting
+- `氛围灯开启` / `关闭` [L0]
+- `雾灯开启` [L1]
+- `示宽灯开启` [L1]
+- `近光灯开启` [L1]
+
+#### Mirrors & Wipers
+- `后视镜折叠` [L1]
+- `雨刮速度3档` [L1] - 0-5档
+
+### 🧭 Navigation
+- `导航到机场` / `去咖啡馆` [L0]
+- `取消导航` [L0]
+- **`添加途经点星巴克`** [L0, Model B]
+- **`避开高速公路`** [L0, Model B]
+- `还有多久到达` [L0, Read-Only]
+- `还有多远` [L0, Read-Only]
+
+### 🎵 Media
+- `播放音乐` / `暂停` / `下一首` / `上一首` [L0]
+- `音量增大` / `减小` / `静音` [L0]
+- `播放周杰伦的歌` [L0, By Artist]
+- `播放稻香` [L0, By Title]
+- `播放我的歌单` / `播放收藏` [L0]
+- **`随机播放`** [L0, Model B]
+- `切换到蓝牙` / `USB` / `在线音乐` [L0]
+
+### 📅 Calendar
+- `创建会议` [L0]
+- `查询今天日程` [L0]
+- `取消下午3点的会议` [L0]
+
+### 🚫 Blacklist (Never Voice)
+- ❌ gear_shift, throttle_control, steering_control, autopilot_enable
+
+**车型差异**: Model A标准配置50+命令，Model B高级配置60+命令（含天窗/座椅加热/前备箱/充电口）
+
+---
+
 ## 扩展指南
 
 ### 添加新领域
