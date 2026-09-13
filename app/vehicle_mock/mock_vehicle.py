@@ -81,6 +81,10 @@ class MockVehicle:
         # PRD v1.9 / detailed-v2.2: Extract trace_id for echoing in writebacks
         trace_id = taskgraph.get("trace_id")
         
+        # P0 fix #1: Check if this is a confirmed L2 execute frame
+        metadata = taskgraph.get("metadata", {})
+        is_l2_confirmed = metadata.get("l2_confirmed", False)
+        
         # Mock执行：遍历所有步骤，发送writeback
         for task in taskgraph.get("tasks", []):
             task_id = task.get("task_id")
@@ -95,12 +99,16 @@ class MockVehicle:
                 
                 print(f"[MockVehicle] Step {step_id}: {domain}.{action} (level={level})")
                 
-                # L2需要确认 - NO auto-accept (merge-blocking fix #1)
+                # L2 handling: confirmed L2 executes, unconfirmed L2 waits
                 if level == "L2":
-                    # L2 steps require explicit UI/API confirmation
-                    # Mock vehicle does NOT auto-accept - only responds to confirm_result from agent
-                    print(f"[MockVehicle] L2 step {step_id} requires explicit confirmation (no auto-accept)")
-                    continue
+                    if is_l2_confirmed:
+                        # P0 fix #1: Confirmed L2 - execute and send vehicle_ack
+                        print(f"[MockVehicle] Executing confirmed L2 step {step_id}")
+                        # Fall through to execute like L0/L1
+                    else:
+                        # Unconfirmed L2 - requires explicit UI/API confirmation
+                        print(f"[MockVehicle] L2 step {step_id} requires explicit confirmation (no auto-accept)")
+                        continue
                 
                 # L0/L1: 立即发送ack (unified status: accepted/rejected/failed)
                 if domain == "vehicle":

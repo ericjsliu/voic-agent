@@ -6,10 +6,11 @@ interface Props {
     taskId: string;
     stepId: string;
     branchId: string;
+    traceId?: string;  // P0 fix #2: include trace_id
     action: string;
     description?: string;
   };
-  onConfirm: (taskId: string, stepId: string, branchId: string, accepted: boolean) => void;
+  onConfirm: (taskId: string, stepId: string, branchId: string, traceId: string | undefined, accepted: boolean) => void;
 }
 
 export default function L2ConfirmZone({ pendingConfirm, onConfirm }: Props) {
@@ -58,6 +59,7 @@ export default function L2ConfirmZone({ pendingConfirm, onConfirm }: Props) {
       pendingConfirm.taskId,
       pendingConfirm.stepId,
       pendingConfirm.branchId,
+      pendingConfirm.traceId,  // P0 fix #2: pass trace_id
       accepted
     )
   }

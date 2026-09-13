@@ -68,6 +68,7 @@ function App() {
             taskId: data.data.tasks[0].task_id,
             stepId: l2Step.step_id,
             branchId: data.data.tasks[0].branch_id,
+            traceId: data.trace_id || data.data.trace_id,  // P0 fix #2: capture trace_id
             action: l2Step.action?.action,
             description: l2Step.description || l2Step.action?.action
           }
@@ -200,13 +201,14 @@ function App() {
     return `好的，正在${descriptions}`
   }
 
-  const handleL2Confirm = (taskId: string, stepId: string, branchId: string, accepted: boolean) => {
+  const handleL2Confirm = (taskId: string, stepId: string, branchId: string, traceId: string | undefined, accepted: boolean) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'l2_confirm',
         task_id: taskId,
         step_id: stepId,
         branch_id: branchId,
+        trace_id: traceId,  // P0 fix #2: include trace_id
         accepted
       }))
       

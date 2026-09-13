@@ -84,6 +84,10 @@ class Orchestrator:
         
         # 当前trace_id（用于writeback）
         self.current_trace_id: Optional[str] = None
+        
+        # L2确认后待发布的步骤（P0 fix #1）
+        self.pending_l2_publish: Optional[TaskGraph] = None
+        self.mqtt_publish_callback: Optional[callable] = None
     
     async def execute_taskgraph(
         self,
@@ -365,21 +369,20 @@ class Orchestrator:
         # 处理确认结果
         if writeback.event == WritebackEvent.CONFIRM_RESULT:
             if writeback.status == WritebackStatus.ACCEPTED:
-                # 用户接受，执行L2动作
-                print(f"[Orchestrator] L2 confirmed, executing {writeback.step_id}")
-                step_state.status = StepStatus.READY
+                # 用户接受，发布L2到vehicle执行（P0 fix #1: L2 after confirm → vehicle_ack）
+                print(f"[Orchestrator] L2 confirmed, publishing for vehicle execution: {writeback.step_id}")
+                step_state.status = StepStatus.EXECUTING
                 
-                # 实际执行
-                adapter = self.adapters[step_state.step.domain]
-                context = {
-                    "shadow_state": self.shadow_state,
-                    "task_id": writeback.task_id,
-                    "branch_id": writeback.branch_id,
-                }
-                result = await adapter.execute(step_state.step, context)
-                step_state.result = result
-                step_state.status = StepStatus.COMPLETED
-                task_state.completed_steps.add(writeback.step_id)
+                # 发布confirmed L2 step到MQTT（单独发布该步骤）
+                await self._publish_confirmed_l2_step(
+                    task_state.task,
+                    step_state.step,
+                    writeback.task_id,
+                    writeback.branch_id
+                )
+                
+                # 现在等待vehicle_ack而不是立即标记completed
+                # vehicle_ack会在后续writeback中将step标记为completed
             else:
                 # 用户拒绝或超时
                 step_state.status = StepStatus.CANCELLED
@@ -427,6 +430,48 @@ class Orchestrator:
                 step_state.error = writeback.reason
                 task_state.failed_steps.add(writeback.step_id)
     
+    async def _publish_confirmed_l2_step(
+        self,
+        task: Task,
+        step: Step,
+        task_id: str,
+        branch_id: str
+    ):
+        """发布confirmed L2步骤到MQTT（P0 fix #1）"""
+        from datetime import datetime
+        
+        # 创建只包含该L2步骤的TaskGraph，标记为已确认
+        # 使用metadata标记这是confirmed L2 execute frame
+        confirmed_taskgraph = TaskGraph(
+            tasks=[
+                Task(
+                    task_id=task_id,
+                    branch_id=branch_id,
+                    steps=[step],
+                    user_intent=f"confirmed_l2_{step.step_id}"
+                )
+            ],
+            session_id=self.pending_downlink.session_id if self.pending_downlink else "",
+            trace_id=self.current_trace_id or "",
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            metadata={"l2_confirmed": True, "original_step_id": step.step_id}
+        )
+        
+        # 如果有MQTT publish callback，立即发布
+        if self.mqtt_publish_callback:
+            self.mqtt_publish_callback(confirmed_taskgraph)
+            print(f"[Orchestrator] Published confirmed L2 step {step.step_id} to MQTT")
+        else:
+            # 否则存储待发布
+            self.pending_l2_publish = confirmed_taskgraph
+            print(f"[Orchestrator] Stored confirmed L2 step {step.step_id} for publishing")
+    
     def get_downlink_taskgraph(self) -> Optional[TaskGraph]:
         """获取待下行的TaskGraph（已验证）"""
         return self.pending_downlink
+    
+    def get_and_clear_pending_l2(self) -> Optional[TaskGraph]:
+        """获取并清除待发布的L2步骤"""
+        l2_graph = self.pending_l2_publish
+        self.pending_l2_publish = None
+        return l2_graph

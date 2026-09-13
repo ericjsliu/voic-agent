@@ -229,6 +229,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Agent] Failed to connect to MQTT: {e}")
     
+    # Set MQTT publish callback for orchestrator (P0 fix #1: L2 after confirm)
+    app_state.orchestrator.mqtt_publish_callback = publish_taskgraph
+    
     print("[Agent] Initialization complete")
     
     yield
@@ -617,10 +620,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             data = await websocket.receive_json()
             
             if data.get("type") == "l2_confirm":
-                # 处理L2确认
+                # 处理L2确认（P0 fix #2: must include trace_id）
                 task_id = data.get("task_id")
                 step_id = data.get("step_id")
                 branch_id = data.get("branch_id", "main")
+                trace_id = data.get("trace_id")  # P0 fix #2: extract trace_id from client
                 accepted = data.get("accepted", False)
                 
                 # 创建writeback
@@ -629,6 +633,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     task_id=task_id,
                     step_id=step_id,
                     branch_id=branch_id,
+                    trace_id=trace_id,  # P0 fix #2: include trace_id
                     event=WritebackEvent.CONFIRM_RESULT,
                     status=WritebackStatus.ACCEPTED if accepted else WritebackStatus.DECLINED,
                     ts=datetime.utcnow().isoformat() + "Z"

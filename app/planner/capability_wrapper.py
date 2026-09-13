@@ -42,7 +42,7 @@ class CapabilityAwarePlanner:
         trace_id: Optional[str] = None,
         session_id: Optional[str] = None
     ) -> TaskGraph:
-        """验证TaskGraph是否符合能力档案"""
+        """验证TaskGraph是否符合能力档案（P0 fix #3: keep what works）"""
         validated_tasks = []
         unsupported_actions = []
         
@@ -68,16 +68,35 @@ class CapabilityAwarePlanner:
                             metadata={"model_id": profile.model_id}
                         )
                 else:
+                    # Keep supported steps (P0 fix #3: 能做的先做)
                     validated_steps.append(step)
             
+            # Keep task if it has any validated steps
             if validated_steps:
                 task.steps = validated_steps
                 validated_tasks.append(task)
         
-        # 如果有不支持的动作，返回TTS提示
+        # P0 fix #3: If there are unsupported actions, ADD an unsupported TTS step
+        # but KEEP all validated_tasks (mixed utterance: keep what works)
         if unsupported_actions:
             unsupported_str = "、".join(set(unsupported_actions))
-            return self._create_unsupported_response(unsupported_str, profile, taskgraph.session_id, taskgraph.trace_id)
+            unsupported_tts_step = self._create_unsupported_tts_step(unsupported_str, profile)
+            
+            # Add unsupported notice as a separate chitchat step
+            if validated_tasks:
+                # Append to first task
+                validated_tasks[0].steps.append(unsupported_tts_step)
+            else:
+                # No valid steps - create a new task with just the TTS
+                from datetime import datetime
+                validated_tasks = [
+                    Task(
+                        task_id="t_unsupported",
+                        branch_id="main",
+                        steps=[unsupported_tts_step],
+                        user_intent="unsupported action"
+                    )
+                ]
         
         taskgraph.tasks = validated_tasks
         return taskgraph
@@ -89,36 +108,18 @@ class CapabilityAwarePlanner:
             return action.action
         return None
     
-    def _create_unsupported_response(
+    def _create_unsupported_tts_step(
         self,
         actions: str,
-        profile: CapabilityProfile,
-        session_id: str = "",
-        trace_id: str = ""
-    ) -> TaskGraph:
-        """创建不支持动作的TTS响应"""
-        from datetime import datetime
-        
-        return TaskGraph(
-            tasks=[
-                Task(
-                    task_id="t_unsupported",
-                    branch_id="main",
-                    steps=[
-                        Step(
-                            step_id="s_unsupported",
-                            domain=DomainType.CHITCHAT,
-                            action=ChitchatAction(
-                                response=f"抱歉，您的车辆（{profile.model_name}）不支持该功能：{actions}",
-                                level=ActionLevel.L0
-                            ),
-                            description="不支持的动作提示"
-                        )
-                    ],
-                    user_intent="unsupported action"
-                )
-            ],
-            session_id=session_id,
-            trace_id=trace_id,
-            timestamp=datetime.utcnow().isoformat() + "Z"
+        profile: CapabilityProfile
+    ) -> Step:
+        """创建不支持动作的TTS步骤（P0 fix #3）"""
+        return Step(
+            step_id="s_unsupported",
+            domain=DomainType.CHITCHAT,
+            action=ChitchatAction(
+                response=f"抱歉，您的车辆（{profile.model_name}）不支持该功能：{actions}",
+                level=ActionLevel.L0
+            ),
+            description="不支持的动作提示"
         )
