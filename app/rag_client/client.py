@@ -35,10 +35,12 @@ class HybridRAGClient:
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         timeout: float = 10.0,
-        use_real_api: Optional[bool] = None
+        use_real_api: Optional[bool] = None,
+        query_path: Optional[str] = None
     ):
         self.base_url = base_url or os.getenv("HYBRID_RAG_BASE_URL", "http://localhost:8001")
         self.api_key = api_key or os.getenv("HYBRID_RAG_API_KEY")
+        self.query_path = query_path or os.getenv("HYBRID_RAG_PATH", "/query/hybrid_rerank")
         self.timeout = timeout
         
         # 自动检测：如果BASE_URL包含"8081"或"mock"，使用mock API
@@ -53,7 +55,7 @@ class HybridRAGClient:
             headers=self._build_headers()
         )
         
-        print(f"[RAGClient] Initialized: {self.base_url} (real_api={self.use_real_api})")
+        print(f"[RAGClient] Initialized: {self.base_url}{self.query_path} (real_api={self.use_real_api})")
     
     def _build_headers(self) -> Dict[str, str]:
         """构建请求头"""
@@ -129,7 +131,7 @@ class HybridRAGClient:
         Args:
             query: 查询文本
             session_id: 会话ID
-            item_names: 车型名称列表（从Capability Profile获取，必须限定当前车型）
+            item_names: 车型名称列表（车型显示名，如"致享"）
             is_stream: 是否流式
             
         Returns:
@@ -149,15 +151,16 @@ class HybridRAGClient:
         }
         
         try:
-            response = await self.client.post("/query/hybrid_rerank", json=payload)
+            # 使用配置的路径（从HYBRID_RAG_PATH env读取）
+            response = await self.client.post(self.query_path, json=payload)
             response.raise_for_status()
             data = response.json()
             
-            print(f"[RAGClient] hybrid_rerank success: {len(data.get('done_list', []))} citations")
+            print(f"[RAGClient] hybrid_rerank success: {len(data.get('done_list', []))} citations (path={self.query_path})")
             return data
         
         except httpx.HTTPStatusError as e:
-            print(f"[RAGClient] hybrid_rerank HTTP error: {e.response.status_code} - {e.response.text}")
+            print(f"[RAGClient] hybrid_rerank HTTP error: {e.response.status_code} - {e.response.text} (path={self.query_path})")
             return {
                 "message": "RAG API error",
                 "session_id": session_id,
@@ -166,7 +169,7 @@ class HybridRAGClient:
                 "retrieval_mode": "error"
             }
         except Exception as e:
-            print(f"[RAGClient] hybrid_rerank client error: {e}")
+            print(f"[RAGClient] hybrid_rerank client error: {e} (path={self.query_path})")
             return {
                 "message": "RAG client error",
                 "session_id": session_id,
