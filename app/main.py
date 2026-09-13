@@ -5,6 +5,7 @@
 import os
 import json
 import asyncio
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -23,6 +24,7 @@ from .rag_client import HybridRAGClient
 from .storage import init_db, create_tables, close_db, PostgresStore, EntityBuffer
 from .planner.rewrite_cancel import RewriteCancelManager
 from .planner.refusal_rules import RefusalRules
+from .audit import init_audit_logger, get_audit_logger, AuditEventType
 from .adapters import (
     VehicleAdapter,
     NavigationAdapter,
@@ -53,6 +55,7 @@ class AppState:
         self.mqtt_client = None
         self.adapters = {}
         self.websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> [ws]
+        self.audit_logger = None  # PRD v1.9 / detailed-v2.2: full-chain tracing
 
 
 app_state = AppState()
@@ -151,6 +154,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Agent] WARNING: PostgreSQL initialization failed: {e}")
         print("[Agent] Continuing with Redis-only mode")
+    
+    # Audit Logger (PRD v1.9 / detailed-v2.2: full-chain tracing)
+    init_audit_logger(pg_store=app_state.pg_store)
+    app_state.audit_logger = get_audit_logger()
+    print("[Agent] Audit Logger initialized (with PG)" if app_state.pg_store else "[Agent] Audit Logger initialized (logs only)")
     
     # Memory (Hybrid: Redis + PostgreSQL)
     app_state.memory_store = get_memory_store(pg_store=app_state.pg_store)
@@ -342,6 +350,9 @@ async def create_session(request: SessionCreateRequest):
 async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     """处理对话（ASR文本输入）"""
     
+    # PRD v1.9 / detailed-v2.2: Generate trace_id at ingress
+    trace_id = str(uuid.uuid4())
+    
     # 获取或创建会话
     if request.session_id:
         session_info = await app_state.session_manager.get_session(request.session_id)
@@ -351,6 +362,14 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         session_info = await app_state.session_manager.create_session(
             driver_id=request.driver_id
         )
+    
+    # Audit: utterance_received
+    app_state.audit_logger.create_event(
+        trace_id=trace_id,
+        session_id=session_info.session_id,
+        event_type=AuditEventType.UTTERANCE_RECEIVED,
+        metadata={"utterance_length": len(request.utterance)}
+    )
     
     # 更新活跃时间
     await app_state.session_manager.update_session_activity(session_info.session_id)
@@ -362,11 +381,26 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         telemetry=request.telemetry
     )
     
+    # Audit: assemble_done
+    app_state.audit_logger.create_event(
+        trace_id=trace_id,
+        session_id=session_info.session_id,
+        event_type=AuditEventType.ASSEMBLE_DONE
+    )
+    
     # 更新orchestrator的shadow_state
     app_state.orchestrator.shadow_state = context.shadow_state
     
     # 获取能力档案
     capability_profile = await app_state.session_manager.get_capability_profile(session_info.session_id)
+    
+    # Audit: planner_start
+    planner_start = datetime.utcnow()
+    app_state.audit_logger.create_event(
+        trace_id=trace_id,
+        session_id=session_info.session_id,
+        event_type=AuditEventType.PLANNER_START
+    )
     
     # 规划TaskGraph（带能力档案过滤）
     taskgraph: TaskGraph = await app_state.planner.plan(
@@ -375,11 +409,25 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         capability_profile=capability_profile
     )
     
-    # 广播TaskGraph到WebSocket
+    # Inject trace_id into TaskGraph
+    taskgraph.trace_id = trace_id
+    
+    # Audit: planner_end
+    planner_duration = int((datetime.utcnow() - planner_start).total_seconds() * 1000)
+    app_state.audit_logger.create_event(
+        trace_id=trace_id,
+        session_id=session_info.session_id,
+        event_type=AuditEventType.PLANNER_END,
+        duration_ms=planner_duration,
+        task_id=taskgraph.tasks[0].task_id if taskgraph.tasks else None
+    )
+    
+    # 广播TaskGraph到WebSocket (include trace_id)
     await ws_manager.broadcast_to_session(
         session_info.session_id,
         {
             "type": "taskgraph",
+            "trace_id": trace_id,
             "data": json_lib.loads(taskgraph.model_dump_json())
         }
     )
@@ -392,14 +440,24 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             if not app_state.session_manager.is_profile_ready(session_info.session_id):
                 profile_state = app_state.session_manager.get_profile_state(session_info.session_id)
                 print(f"[Agent] MQTT downlink BLOCKED: profile state = {profile_state}")
+                
+                # Audit: dispatch_blocked
+                app_state.audit_logger.create_event(
+                    trace_id=trace_id,
+                    session_id=session_info.session_id,
+                    event_type=AuditEventType.DISPATCH_BLOCKED,
+                    reason=f"Profile state: {profile_state}",
+                    task_id=taskgraph.tasks[0].task_id if taskgraph.tasks else None
+                )
                 return
             
-            # 自定义writeback回调：广播到WebSocket
+            # 自定义writeback回调：广播到WebSocket (include trace_id)
             async def writeback_callback(writeback):
                 await ws_manager.broadcast_to_session(
                     session_info.session_id,
                     {
                         "type": "writeback",
+                        "trace_id": trace_id,
                         "data": json_lib.loads(writeback.model_dump_json())
                     }
                 )
@@ -414,7 +472,25 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             # 再次检查profile ready（防止执行期间切换）
             if not app_state.session_manager.is_profile_ready(session_info.session_id):
                 print(f"[Agent] MQTT downlink BLOCKED: profile switched during execution")
+                
+                # Audit: dispatch_blocked
+                app_state.audit_logger.create_event(
+                    trace_id=trace_id,
+                    session_id=session_info.session_id,
+                    event_type=AuditEventType.DISPATCH_BLOCKED,
+                    reason="Profile switched during execution",
+                    task_id=taskgraph.tasks[0].task_id if taskgraph.tasks else None
+                )
                 return
+            
+            # Audit: dispatch
+            app_state.audit_logger.create_event(
+                trace_id=trace_id,
+                session_id=session_info.session_id,
+                event_type=AuditEventType.DISPATCH,
+                task_id=taskgraph.tasks[0].task_id if taskgraph.tasks else None,
+                metadata={"step_count": len(taskgraph.tasks[0].steps) if taskgraph.tasks else 0}
+            )
             
             # 发布到MQTT下行（仅当profile ready）
             publish_taskgraph(taskgraph)
@@ -504,6 +580,21 @@ async def get_profile_state(session_id: str):
         "state": state,
         "is_ready": is_ready,
         "mqtt_downlink_allowed": is_ready
+    }
+
+
+@app.get("/trace/{trace_id}")
+async def get_trace_events(trace_id: str):
+    """查询trace_id的审计事件（PRD v1.9 / detailed-v2.2）
+    
+    返回按时间排序的事件列表，用于测试控制台和调试
+    """
+    events = app_state.audit_logger.get_by_trace_id(trace_id)
+    
+    return {
+        "trace_id": trace_id,
+        "event_count": len(events),
+        "events": [e.model_dump(exclude_none=True) for e in events]
     }
 
 

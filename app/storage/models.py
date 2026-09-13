@@ -127,3 +127,38 @@ class SpatiotemporalEvent(Base):
         Index('idx_driver_event_time', 'driver_id', 'event_type', 'event_time'),
         Index('idx_driver_time', 'driver_id', 'event_time'),
     )
+
+
+class AuditEventLog(Base):
+    """审计事件日志（full-chain tracing PRD v1.9 / detailed-v2.2）
+    
+    无对话transcript，仅结构化事件
+    """
+    __tablename__ = "audit_event_logs"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trace_id = Column(String(255), nullable=False, index=True)
+    session_id = Column(String(255), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    
+    # 可选字段
+    task_id = Column(String(255), index=True)
+    step_id = Column(String(255))
+    branch_id = Column(String(100))
+    domain = Column(String(50))
+    action = Column(String(100))
+    status = Column(String(50))
+    reason = Column(Text)
+    model_name = Column(String(100))
+    duration_ms = Column(Integer)
+    citations_count = Column(Integer)
+    
+    # 额外元数据
+    metadata = Column(JSONB)
+    
+    __table_args__ = (
+        Index('idx_trace_timestamp', 'trace_id', 'timestamp'),
+        Index('idx_session_timestamp', 'session_id', 'timestamp'),
+        Index('idx_event_type_timestamp', 'event_type', 'timestamp'),
+    )

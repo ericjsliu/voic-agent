@@ -332,3 +332,76 @@ class PostgresStore:
             ]
         finally:
             db.close()
+    
+    # ==================== Audit Events (PRD v1.9 / detailed-v2.2) ====================
+    
+    def log_audit_event(self, audit_event):
+        """记录审计事件（full-chain tracing）"""
+        from .models import AuditEventLog
+        from datetime import datetime
+        
+        db: Session = get_db()
+        try:
+            # Parse timestamp if it's a string
+            ts = audit_event.timestamp
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            
+            log = AuditEventLog(
+                trace_id=audit_event.trace_id,
+                session_id=audit_event.session_id,
+                event_type=audit_event.event_type,
+                timestamp=ts,
+                task_id=audit_event.task_id,
+                step_id=audit_event.step_id,
+                branch_id=audit_event.branch_id,
+                domain=audit_event.domain,
+                action=audit_event.action,
+                status=audit_event.status,
+                reason=audit_event.reason,
+                model_name=audit_event.model_name,
+                duration_ms=audit_event.duration_ms,
+                citations_count=audit_event.citations_count,
+                metadata=audit_event.metadata
+            )
+            db.add(log)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"[PostgresStore] Error logging audit event: {e}")
+        finally:
+            db.close()
+    
+    def get_audit_events_by_trace(self, trace_id: str):
+        """按trace_id查询审计事件（按时间排序）"""
+        from .models import AuditEventLog
+        from ..audit import AuditEvent
+        
+        db: Session = get_db()
+        try:
+            logs = db.query(AuditEventLog).filter_by(
+                trace_id=trace_id
+            ).order_by(AuditEventLog.timestamp).all()
+            
+            return [
+                AuditEvent(
+                    trace_id=log.trace_id,
+                    session_id=log.session_id,
+                    event_type=log.event_type,
+                    timestamp=log.timestamp.isoformat() + "Z",
+                    task_id=log.task_id,
+                    step_id=log.step_id,
+                    branch_id=log.branch_id,
+                    domain=log.domain,
+                    action=log.action,
+                    status=log.status,
+                    reason=log.reason,
+                    model_name=log.model_name,
+                    duration_ms=log.duration_ms,
+                    citations_count=log.citations_count,
+                    metadata=log.metadata
+                )
+                for log in logs
+            ]
+        finally:
+            db.close()

@@ -148,5 +148,6 @@ class TaskGraph(BaseModel):
     """任务图（可包含多个任务/分支）"""
     tasks: List[Task]
     session_id: str
+    trace_id: str  # PRD v1.9 / detailed-v2.2: full-chain tracing
     timestamp: str  # ISO 8601
     metadata: Optional[Dict[str, Any]] = None

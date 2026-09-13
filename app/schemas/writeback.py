@@ -34,6 +34,7 @@ class WritebackEnvelope(BaseModel):
     task_id: str
     step_id: str
     branch_id: str
+    trace_id: str  # PRD v1.9 / detailed-v2.2: full-chain tracing
     event: WritebackEvent
     status: WritebackStatus
     reason: Optional[str] = None  # 失败/拒绝原因

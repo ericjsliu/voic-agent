@@ -78,6 +78,9 @@ class MockVehicle:
         """处理TaskGraph下行"""
         print(f"[MockVehicle] Processing TaskGraph...")
         
+        # PRD v1.9 / detailed-v2.2: Extract trace_id for echoing in writebacks
+        trace_id = taskgraph.get("trace_id")
+        
         # Mock执行：遍历所有步骤，发送writeback
         for task in taskgraph.get("tasks", []):
             task_id = task.get("task_id")
@@ -96,33 +99,33 @@ class MockVehicle:
                 if level == "L2":
                     # Mock: 1秒后自动确认接受
                     asyncio.create_task(
-                        self._send_confirm_result(task_id, step_id, branch_id, accepted=True, delay=1.0)
+                        self._send_confirm_result(task_id, step_id, branch_id, trace_id, accepted=True, delay=1.0)
                     )
                     continue
                 
                 # L0/L1: 立即发送ack
                 if domain == "vehicle":
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, "vehicle_ack", "success", delay=0.5)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "vehicle_ack", "success", delay=0.5)
                     )
                 elif domain == "navigation":
                     # PRD v1.7 / detailed-v2.0.1: Always emit nav_route_started (completes the step)
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, "nav_route_started", "success", delay=1.0)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "nav_route_started", "success", delay=1.0)
                     )
                     
                     # nav_arrived is optional (default off) - only for demo purposes
                     if self.enable_nav_arrived:
                         asyncio.create_task(
-                            self._send_writeback(task_id, step_id, branch_id, "nav_arrived", "success", delay=8.0)
+                            self._send_writeback(task_id, step_id, branch_id, trace_id, "nav_arrived", "success", delay=8.0)
                         )
                 elif domain == "media":
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, "media_ack", "success", delay=0.5)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "media_ack", "success", delay=0.5)
                     )
                 elif domain == "calendar":
                     asyncio.create_task(
-                        self._send_writeback(task_id, step_id, branch_id, "calendar_ack", "success", delay=0.5)
+                        self._send_writeback(task_id, step_id, branch_id, trace_id, "calendar_ack", "success", delay=0.5)
                     )
     
     async def _send_writeback(
@@ -130,12 +133,13 @@ class MockVehicle:
         task_id: str,
         step_id: str,
         branch_id: str,
+        trace_id: Optional[str],
         event: str,
         status: str,
         reason: Optional[str] = None,
         delay: float = 0.0
     ):
-        """发送writeback"""
+        """发送writeback（PRD v1.9: echo trace_id）"""
         if delay > 0:
             await asyncio.sleep(delay)
         
@@ -143,6 +147,7 @@ class MockVehicle:
             "task_id": task_id,
             "step_id": step_id,
             "branch_id": branch_id,
+            "trace_id": trace_id,  # PRD v1.9 / detailed-v2.2: echo unchanged
             "event": event,
             "status": status,
             "reason": reason,
@@ -151,23 +156,24 @@ class MockVehicle:
         
         payload = json.dumps(writeback, ensure_ascii=False)
         self.client.publish(self.TOPIC_UPLINK_WRITEBACK, payload)
-        print(f"[MockVehicle] Sent writeback: {event} -> {status}")
+        print(f"[MockVehicle] Sent writeback: {event} -> {status} (trace_id={trace_id})")
     
     async def _send_confirm_result(
         self,
         task_id: str,
         step_id: str,
         branch_id: str,
+        trace_id: Optional[str],
         accepted: bool,
         delay: float = 0.0
     ):
-        """发送L2确认结果"""
+        """发送L2确认结果（PRD v1.9: echo trace_id）"""
         if delay > 0:
             await asyncio.sleep(delay)
         
         status = "accepted" if accepted else "declined"
         await self._send_writeback(
-            task_id, step_id, branch_id,
+            task_id, step_id, branch_id, trace_id,
             "confirm_result", status
         )
     
