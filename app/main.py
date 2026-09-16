@@ -320,6 +320,7 @@ class DialogueResponse(BaseModel):
     session_id: str
     taskgraph: TaskGraph
     timestamp: str
+    relevant_memories: Optional[List[Dict[str, Any]]] = None  # P2: 本轮召回
 
 
 class SessionCreateRequest(BaseModel):
@@ -486,6 +487,9 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         event_type=AuditEventType.ASSEMBLE_DONE
     )
     
+    # Extract relevant_memories for UI display
+    relevant_memories = context.memory_slice.get("relevant_memories", []) if context.memory_slice else []
+    
     # 更新orchestrator的shadow_state
     app_state.orchestrator.shadow_state = context.shadow_state
     
@@ -534,13 +538,14 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         task_id=taskgraph.tasks[0].task_id if taskgraph.tasks else None
     )
     
-    # 广播TaskGraph到WebSocket (include trace_id)
+    # 广播TaskGraph到WebSocket (include trace_id and relevant_memories)
     await ws_manager.broadcast_to_session(
         session_info.session_id,
         {
             "type": "taskgraph",
             "trace_id": trace_id,
-            "data": json_lib.loads(taskgraph.model_dump_json())
+            "data": json_lib.loads(taskgraph.model_dump_json()),
+            "relevant_memories": relevant_memories  # P2: 本轮召回
         }
     )
     
@@ -647,7 +652,8 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     return DialogueResponse(
         session_id=session_info.session_id,
         taskgraph=taskgraph,
-        timestamp=datetime.utcnow().isoformat() + "Z"
+        timestamp=datetime.utcnow().isoformat() + "Z",
+        relevant_memories=relevant_memories  # P2: 本轮召回
     )
 
 

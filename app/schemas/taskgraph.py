@@ -76,11 +76,17 @@ class RoutePreferences(BaseModel):
 
 
 class NavGoal(BaseModel):
-    """导航目标（POI已解析）"""
+    """导航目标
+    
+    Cloud contract: lat/lng NOT required. Vehicle parses address_text and geocodes.
+    - For home/company: only poi_name + address needed
+    - For POI: can provide lat/lng if cloud has them
+    - Vehicle sends nav_route_started ACK after geocoding
+    """
     poi_name: str
-    latitude: float
-    longitude: float
-    address: Optional[str] = None
+    latitude: Optional[float] = 0.0  # Optional: vehicle geocodes if not provided
+    longitude: Optional[float] = 0.0  # Optional: vehicle geocodes if not provided
+    address: Optional[str] = None  # Required for home/company when lat/lng absent
 
 
 class NavigationAction(BaseModel):

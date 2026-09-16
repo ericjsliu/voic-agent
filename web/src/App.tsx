@@ -4,12 +4,14 @@ import InfoPanel from './components/InfoPanel'
 import ConnectionSettings from './components/ConnectionSettings'
 import VehicleStatePanel from './components/VehicleStatePanel'
 import L2ConfirmZone from './components/L2ConfirmZone'
+import MemoryPanel from './components/MemoryPanel'
 import { Message, Writeback, VehicleTelemetry, ConnectionConfig } from './types'
 import './App.css'
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [writebacks, setWritebacks] = useState<Writeback[]>([])
+  const [relevantMemories, setRelevantMemories] = useState<any[]>([])
   const [telemetry, setTelemetry] = useState<VehicleTelemetry>({
     gear: 'P',
     speed_kmh: 0,
@@ -77,6 +79,11 @@ function App() {
       
       if (data.type === 'taskgraph') {
         setCurrentTaskGraph(data.data)
+        
+        // P2: 提取本轮召回的记忆
+        if (data.relevant_memories) {
+          setRelevantMemories(data.relevant_memories)
+        }
         
         // 检查是否有L2待确认
         const l2Step = data.data.tasks?.[0]?.steps?.find((s: any) => 
@@ -197,6 +204,11 @@ function App() {
       
       if (!config.sessionId) {
         setConfig(prev => ({ ...prev, sessionId: data.session_id }))
+      }
+      
+      // P2: 提取本轮召回的记忆
+      if (data.relevant_memories) {
+        setRelevantMemories(data.relevant_memories)
       }
 
       // 提取知识查询的citations
@@ -382,6 +394,11 @@ function App() {
             taskGraph={currentTaskGraph}
             writebacks={writebacks}
             telemetry={telemetry}
+          />
+          <MemoryPanel
+            baseUrl={config.baseUrl}
+            userId={`account_default:${config.driverId}`}
+            relevantMemories={relevantMemories}
           />
         </aside>
       </div>
