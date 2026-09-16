@@ -101,12 +101,21 @@ classify(content: str) -> Optional[category]
 
 ### 4. PassiveExtractor
 
-被动提取器，计算 `长期性 × 稳定性 × 个人属性`：
+被动提取器，**PRD v1.24 锁定加权公式**：
 
 ```python
-should_extract(utterance, response, context) -> (bool, confidence)
-extract_facts(utterance, response) -> List[str]
+score = 0.4 * long_term + 0.3 * stability + 0.3 * personal
+threshold = 0.7（可配置，默认0.7）
+
+should_extract(utterance, response, context, threshold=0.7) -> (bool, score)
 ```
+
+**低长期性（跳过提取）**：
+- 一次性交通查询：堵车吗、路况、拥堵
+- 下个路口类问题
+- 临时车辆状态查询：当前车速、现在温度
+
+**主动记忆仍跳过打分**，但仍运行黑名单检查。
 
 ### 5. ActiveMemoryHandler
 

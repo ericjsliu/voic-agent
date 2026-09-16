@@ -126,44 +126,126 @@ class MemoryClassifier:
 
 
 class PassiveExtractor:
-    """被动提取器：对话结束后异步打分 + 提取"""
+    """被动提取器：对话结束后异步打分 + 提取
+    
+    PRD v1.24 锁定公式：
+    score = 0.4 * long_term + 0.3 * stability + 0.3 * personal
+    threshold = 0.7（可配置）
+    """
+    
+    # PRD v1.24: 默认阈值0.7（可通过配置调整）
+    DEFAULT_THRESHOLD = 0.7
     
     @staticmethod
     def should_extract(
         utterance: str,
         assistant_response: str,
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        threshold: float = None
     ) -> Tuple[bool, float]:
-        """判断是否应该被动提取
+        """判断是否应该被动提取（PRD v1.24锁定公式）
+        
+        Args:
+            utterance: 用户话语
+            assistant_response: 助手回复
+            context: 对话上下文
+            threshold: 阈值（默认0.7）
         
         Returns:
-            (should_extract, confidence)
+            (should_extract, score)
         """
-        # 简单规则：计算长期性 × 稳定性 × 个人属性
+        if threshold is None:
+            threshold = PassiveExtractor.DEFAULT_THRESHOLD
         
-        # 长期性：不是临时问答
-        long_term_score = 0.0
-        if any(kw in utterance for kw in ['记住', '我', '我的', '家', '公司', '喜欢', '习惯']):
-            long_term_score = 0.8
-        if any(kw in utterance for kw in ['几点', '多少', '什么时候', '现在']):
-            long_term_score = 0.1  # 时效性问题
+        # PRD v1.24: 加权公式 0.4 * long_term + 0.3 * stability + 0.3 * personal
         
-        # 稳定性：不是情绪性或单次事实
-        stability_score = 0.5
-        if any(kw in utterance for kw in ['总是', '一直', '经常', '平时']):
-            stability_score = 0.9
-        if any(kw in utterance for kw in ['今天', '现在', '刚才']):
-            stability_score = 0.2
+        # 长期性（0.0-1.0）：不是一次性临时信息
+        long_term_score = PassiveExtractor._calculate_long_term_score(utterance)
         
-        # 个人属性：关于用户自己
-        personal_score = 0.0
-        if any(kw in utterance for kw in ['我', '我的']):
-            personal_score = 0.8
+        # 稳定性（0.0-1.0）：不是情绪性或单次事实
+        stability_score = PassiveExtractor._calculate_stability_score(utterance)
         
-        confidence = long_term_score * stability_score * personal_score
-        threshold = 0.3  # 阈值
+        # 个人属性（0.0-1.0）：关于用户自己
+        personal_score = PassiveExtractor._calculate_personal_score(utterance)
         
-        return (confidence >= threshold, confidence)
+        # 加权求和
+        score = 0.4 * long_term_score + 0.3 * stability_score + 0.3 * personal_score
+        
+        return (score >= threshold, score)
+    
+    @staticmethod
+    def _calculate_long_term_score(utterance: str) -> float:
+        """计算长期性得分（PRD v1.24）
+        
+        低长期性（应跳过）：
+        - 一次性交通查询（堵车吗、路况）
+        - 下个路口类问题
+        - 临时车辆状态查询
+        
+        Returns:
+            0.0-1.0
+        """
+        # 明确的低长期性模式（PRD v1.24锁定）
+        low_long_term_patterns = [
+            '堵车', '路况', '拥堵',  # 一次性交通查询
+            '下个路口', '下一个路口', '前方路口',  # next intersection
+            '当前', '现在', '目前',  # ephemeral state
+            '几点', '多少', '什么时候',  # temporal queries
+        ]
+        
+        for pattern in low_long_term_patterns:
+            if pattern in utterance:
+                return 0.1  # 低长期性，几乎不提取
+        
+        # 高长期性模式
+        high_long_term_patterns = [
+            '我', '我的', '家', '公司', '住址',
+            '喜欢', '习惯', '偏好', '常', '经常',
+            '总是', '一直', '平时', '通常'
+        ]
+        
+        for pattern in high_long_term_patterns:
+            if pattern in utterance:
+                return 0.9  # 高长期性
+        
+        # 默认中等
+        return 0.5
+    
+    @staticmethod
+    def _calculate_stability_score(utterance: str) -> float:
+        """计算稳定性得分
+        
+        Returns:
+            0.0-1.0
+        """
+        # 高稳定性（持久模式）
+        if any(kw in utterance for kw in ['总是', '一直', '经常', '平时', '通常', '习惯']):
+            return 0.9
+        
+        # 低稳定性（临时/情绪）
+        if any(kw in utterance for kw in ['今天', '现在', '刚才', '这次', '暂时']):
+            return 0.2
+        
+        # 默认中等
+        return 0.5
+    
+    @staticmethod
+    def _calculate_personal_score(utterance: str) -> float:
+        """计算个人属性得分
+        
+        Returns:
+            0.0-1.0
+        """
+        # 明确的个人属性
+        if any(kw in utterance for kw in ['我', '我的', '我家', '我常']):
+            return 0.9
+        
+        # 非个人（通用查询）
+        if any(kw in utterance for kw in ['这个', '那个', '怎么', '什么', '如何']):
+            return 0.3
+        
+        # 默认中等
+        return 0.5
     
     @staticmethod
     def extract_facts(utterance: str, response: str) -> List[str]:

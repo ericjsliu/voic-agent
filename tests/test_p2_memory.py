@@ -105,31 +105,113 @@ class TestMemoryClassifier:
 
 
 class TestPassiveExtractor:
-    """被动提取器测试"""
+    """被动提取器测试（PRD v1.24加权公式）"""
     
-    def test_should_extract_preference(self):
-        """测试应该提取偏好"""
+    def test_should_extract_preference_high_score(self):
+        """测试应该提取偏好（高分）"""
         extractor = PassiveExtractor()
         
-        should, confidence = extractor.should_extract(
+        should, score = extractor.should_extract(
             utterance="我平时喜欢听周杰伦",
             assistant_response="好的，已记录您的音乐偏好",
             context={}
         )
         
+        # PRD v1.24: 高长期性(0.9) + 高稳定性(0.9) + 高个人(0.9)
+        # score = 0.4*0.9 + 0.3*0.9 + 0.3*0.9 = 0.36 + 0.27 + 0.27 = 0.90
         assert should is True
-        assert confidence > 0.3
+        assert score >= 0.7  # 超过阈值0.7
+        assert score >= 0.85  # 应该接近0.9
     
     def test_should_not_extract_temporary(self):
-        """测试不应提取临时内容"""
+        """测试不应提取临时内容（低分）"""
         extractor = PassiveExtractor()
         
-        should, confidence = extractor.should_extract(
+        should, score = extractor.should_extract(
             utterance="现在几点了",
             assistant_response="现在是下午3点",
             context={}
         )
         
+        # 低长期性 + 低稳定性 + 低个人
+        assert should is False
+        assert score < 0.7
+    
+    def test_skip_one_shot_traffic(self):
+        """测试跳过一次性交通查询（PRD v1.24）"""
+        extractor = PassiveExtractor()
+        
+        test_cases = [
+            "前面堵车吗",
+            "路况怎么样",
+            "现在拥堵吗",
+        ]
+        
+        for utterance in test_cases:
+            should, score = extractor.should_extract(
+                utterance=utterance,
+                assistant_response="",
+                context={}
+            )
+            # 低长期性 → score应该低
+            assert should is False, f"Should not extract: {utterance}"
+            assert score < 0.7, f"Score too high for: {utterance}"
+    
+    def test_skip_next_intersection(self):
+        """测试跳过下个路口查询（PRD v1.24）"""
+        extractor = PassiveExtractor()
+        
+        should, score = extractor.should_extract(
+            utterance="下个路口是哪里",
+            assistant_response="",
+            context={}
+        )
+        
+        assert should is False
+        assert score < 0.7
+    
+    def test_skip_ephemeral_state(self):
+        """测试跳过临时车辆状态（PRD v1.24）"""
+        extractor = PassiveExtractor()
+        
+        should, score = extractor.should_extract(
+            utterance="当前车速是多少",
+            assistant_response="",
+            context={}
+        )
+        
+        assert should is False
+        assert score < 0.7
+    
+    def test_weighted_formula(self):
+        """测试PRD v1.24加权公式：0.4*long + 0.3*stability + 0.3*personal"""
+        extractor = PassiveExtractor()
+        
+        # 人工构造：中等长期(0.5) + 高稳定(0.9) + 高个人(0.9)
+        # score = 0.4*0.5 + 0.3*0.9 + 0.3*0.9 = 0.2 + 0.27 + 0.27 = 0.74
+        should, score = extractor.should_extract(
+            utterance="我经常在这条路上开",  # 无明确家/公司，但有经常+我
+            assistant_response="",
+            context={}
+        )
+        
+        # 应该超过阈值0.7
+        assert should is True
+        assert 0.70 <= score <= 0.80
+    
+    def test_custom_threshold(self):
+        """测试自定义阈值"""
+        extractor = PassiveExtractor()
+        
+        should, score = extractor.should_extract(
+            utterance="我喜欢这个",  # 中等分数
+            assistant_response="",
+            context={},
+            threshold=0.9  # 高阈值
+        )
+        
+        # 分数可能不够高
+        assert score < 0.9
         assert should is False
     
     def test_extract_facts(self):

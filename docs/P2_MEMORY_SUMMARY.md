@@ -182,7 +182,9 @@ P2MemoryService.put_memory()
   ↓
 后台异步: PassiveExtractor.should_extract()
   ↓
-长期性×稳定性×个人属性 ≥ 0.3
+PRD v1.24: score = 0.4*long_term + 0.3*stability + 0.3*personal
+  ↓
+score ≥ 0.7 触发提取
   ↓
 PassiveExtractor.extract_facts()
   ↓
