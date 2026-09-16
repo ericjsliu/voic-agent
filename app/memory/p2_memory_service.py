@@ -492,9 +492,11 @@ class P2MemoryService:
             from sqlalchemy import text
             
             # 粗召回：TopK
+            # pgvector needs explicit cast; binding a Python list becomes numeric[]
+            emb_literal = "[" + ",".join(str(float(x)) for x in query_embedding) + "]"
             sql = text("""
-                SELECT memory_id, user_id, content, category, weight, 
-                       embedding <=> :query_emb AS distance
+                SELECT memory_id, user_id, content, category, weight,
+                       embedding <=> CAST(:query_emb AS vector) AS distance
                 FROM long_term_memory_p2
                 WHERE user_id = :user_id AND embedding IS NOT NULL
                 ORDER BY distance
@@ -502,7 +504,7 @@ class P2MemoryService:
             """)
             
             result = db.execute(sql, {
-                'query_emb': query_embedding,
+                'query_emb': emb_literal,
                 'user_id': user_id,
                 'top_k': min(top_k, 5)
             })

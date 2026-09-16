@@ -41,7 +41,7 @@ class QwenMemoryExtractor:
         self.timeout = timeout
         
         # 创建OpenAI v1+ 客户端
-        self.client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+        self.client = OpenAI(api_key=self.api_key or 'sk-placeholder', base_url=self.api_base)
         
         print(f"[QwenMemoryExtractor] Initialized: model={self.model}, base={self.api_base}")
     
@@ -221,7 +221,7 @@ class QwenEmbedding:
         self.dimension = int(os.getenv('EMBEDDING_DIMENSIONS', '1024'))
         
         # 创建OpenAI v1+ 客户端
-        self.client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+        self.client = OpenAI(api_key=self.api_key or 'sk-placeholder', base_url=self.api_base)
         
         print(f"[QwenEmbedding] Initialized: model={self.model}, dim={self.dimension}, base={self.api_base}")
     
@@ -248,21 +248,35 @@ class QwenEmbedding:
         try:
             # DashScope text-embedding-v3 默认1024维，需要在parameters中指定
             # 注意：DashScope的OpenAI兼容模式可能不支持dimensions参数，需要在extra_body中传递
+            # openai==1.3.x rejects dimensions= kwarg; DashScope accepts via extra_body
             try:
-                # 尝试使用dimensions参数（OpenAI标准）
                 response = self.client.embeddings.create(
                     model=self.model,
                     input=text,
-                    dimensions=self.dimension,
-                    timeout=timeout
+                    timeout=timeout,
+                    extra_body={"dimensions": self.dimension},
                 )
+            except TypeError:
+                # older/newer SDKs: try dimensions kwarg then plain
+                try:
+                    response = self.client.embeddings.create(
+                        model=self.model,
+                        input=text,
+                        dimensions=self.dimension,
+                        timeout=timeout,
+                    )
+                except Exception:
+                    response = self.client.embeddings.create(
+                        model=self.model,
+                        input=text,
+                        timeout=timeout,
+                    )
             except Exception as e1:
-                # 如果不支持dimensions参数，尝试不传（text-embedding-v3默认1024维）
-                print(f"[QwenEmbedding] Dimensions param not supported, using default: {e1}")
+                print(f"[QwenEmbedding] embed with extra_body failed, retry plain: {e1}")
                 response = self.client.embeddings.create(
                     model=self.model,
                     input=text,
-                    timeout=timeout
+                    timeout=timeout,
                 )
             
             if not response or not response.data or len(response.data) == 0:
@@ -317,8 +331,8 @@ class QwenEmbedding:
                 response = self.client.embeddings.create(
                     model=self.model,
                     input=valid_texts,
-                    dimensions=self.dimension,
-                    timeout=timeout
+                    timeout=timeout,
+                    extra_body={"dimensions": self.dimension},
                 )
             except Exception as e1:
                 # 如果不支持dimensions参数，使用默认
