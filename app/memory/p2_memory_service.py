@@ -491,10 +491,14 @@ class P2MemoryService:
             # 向量相似度搜索（pgvector）
             from sqlalchemy import text
             
-            # 粗召回：TopK
+            # 转换query embedding为pgvector格式字符串
+            # pgvector需要 '[v1,v2,...]' 格式，然后CAST为vector类型
+            query_emb_str = '[' + ','.join(str(v) for v in query_embedding) + ']'
+            
+            # 粗召回：TopK - 使用CAST将字符串转为vector类型
             sql = text("""
                 SELECT memory_id, user_id, content, category, weight, 
-                       embedding <=> :query_emb AS distance
+                       embedding <=> CAST(:query_emb AS vector) AS distance
                 FROM long_term_memory_p2
                 WHERE user_id = :user_id AND embedding IS NOT NULL
                 ORDER BY distance
@@ -502,7 +506,7 @@ class P2MemoryService:
             """)
             
             result = db.execute(sql, {
-                'query_emb': query_embedding,
+                'query_emb': query_emb_str,
                 'user_id': user_id,
                 'top_k': min(top_k, 5)
             })

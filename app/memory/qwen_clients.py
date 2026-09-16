@@ -37,9 +37,11 @@ class QwenMemoryExtractor:
         """
         self.model = model or os.getenv('MEMORY_EXTRACT_MODEL', 'qwen-turbo')
         
-        # 使用现有的OpenAI配置
+        # 使用现有的OpenAI配置（测试环境允许空key时使用'test'占位符）
         openai.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        openai.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
+        api_key_value = api_key or os.getenv('OPENAI_API_KEY', '')
+        # 如果api_key为空（测试环境），使用'test'占位符避免OpenAI client初始化失败
+        openai.api_key = api_key_value if api_key_value else 'test'
         
         self.timeout = timeout
         
@@ -215,9 +217,11 @@ class QwenEmbedding:
         """
         self.model = model or os.getenv('MEMORY_EMBED_MODEL', 'text-embedding-v3')
         
-        # 使用现有的OpenAI配置
+        # 使用现有的OpenAI配置（测试环境允许空key时使用'test'占位符）
         openai.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        openai.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
+        api_key_value = api_key or os.getenv('OPENAI_API_KEY', '')
+        # 如果api_key为空（测试环境），使用'test'占位符避免OpenAI client初始化失败
+        openai.api_key = api_key_value if api_key_value else 'test'
         
         self.timeout = timeout
         # 用户锁定：text-embedding-v3 输出1024维
@@ -242,11 +246,11 @@ class QwenEmbedding:
         timeout = timeout or self.timeout
         
         try:
-            # 显式传递dimensions参数（用户锁定1024）
+            # openai==1.3.7不支持dimensions参数，使用extra_body（DashScope兼容）
             response = openai.Embedding.create(
                 model=self.model,
                 input=text,
-                dimensions=self.dimension,
+                extra_body={"dimensions": self.dimension},
                 timeout=timeout
             )
             
@@ -280,11 +284,11 @@ class QwenEmbedding:
         timeout = timeout or self.timeout
         
         try:
-            # 显式传递dimensions参数（用户锁定1024）
+            # openai==1.3.7不支持dimensions参数，使用extra_body（DashScope兼容）
             response = openai.Embedding.create(
                 model=self.model,
                 input=texts,
-                dimensions=self.dimension,
+                extra_body={"dimensions": self.dimension},
                 timeout=timeout
             )
             

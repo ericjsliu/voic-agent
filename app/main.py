@@ -897,6 +897,7 @@ async def get_home_company_address(user_id: str):
 
 
 # ==================== WebSocket ====================
+@app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket端点：实时接收TaskGraph和Writeback"""
     await ws_manager.connect(websocket, session_id)
