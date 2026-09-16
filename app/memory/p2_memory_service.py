@@ -493,11 +493,11 @@ class P2MemoryService:
             
             # 转换query embedding为pgvector格式字符串
             # pgvector需要 '[v1,v2,...]' 格式，然后CAST为vector类型
-            query_emb_str = '[' + ','.join(str(v) for v in query_embedding) + ']'
+            emb_literal = "[" + ",".join(str(float(x)) for x in query_embedding) + "]"
             
             # 粗召回：TopK - 使用CAST将字符串转为vector类型
             sql = text("""
-                SELECT memory_id, user_id, content, category, weight, 
+                SELECT memory_id, user_id, content, category, weight,
                        embedding <=> CAST(:query_emb AS vector) AS distance
                 FROM long_term_memory_p2
                 WHERE user_id = :user_id AND embedding IS NOT NULL
@@ -506,7 +506,7 @@ class P2MemoryService:
             """)
             
             result = db.execute(sql, {
-                'query_emb': query_emb_str,
+                'query_emb': emb_literal,
                 'user_id': user_id,
                 'top_k': min(top_k, 5)
             })

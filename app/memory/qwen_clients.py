@@ -37,11 +37,11 @@ class QwenMemoryExtractor:
         """
         self.model = model or os.getenv('MEMORY_EXTRACT_MODEL', 'qwen-turbo')
         
-        # 使用现有的OpenAI配置（测试环境允许空key时使用'test'占位符）
+        # 使用现有的OpenAI配置（测试环境允许空key时使用占位符）
         openai.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        api_key_value = api_key or os.getenv('OPENAI_API_KEY', '')
-        # 如果api_key为空（测试环境），使用'test'占位符避免OpenAI client初始化失败
-        openai.api_key = api_key_value if api_key_value else 'test'
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
+        # 如果api_key为空（测试环境），使用'sk-placeholder'避免OpenAI client初始化失败
+        openai.api_key = self.api_key or 'sk-placeholder'
         
         self.timeout = timeout
         
@@ -217,11 +217,11 @@ class QwenEmbedding:
         """
         self.model = model or os.getenv('MEMORY_EMBED_MODEL', 'text-embedding-v3')
         
-        # 使用现有的OpenAI配置（测试环境允许空key时使用'test'占位符）
+        # 使用现有的OpenAI配置（测试环境允许空key时使用占位符）
         openai.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        api_key_value = api_key or os.getenv('OPENAI_API_KEY', '')
-        # 如果api_key为空（测试环境），使用'test'占位符避免OpenAI client初始化失败
-        openai.api_key = api_key_value if api_key_value else 'test'
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
+        # 如果api_key为空（测试环境），使用'sk-placeholder'避免OpenAI client初始化失败
+        openai.api_key = self.api_key or 'sk-placeholder'
         
         self.timeout = timeout
         # 用户锁定：text-embedding-v3 输出1024维
