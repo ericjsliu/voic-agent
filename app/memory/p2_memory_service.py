@@ -7,14 +7,21 @@
 - 硬黑名单：PII/病历/轨迹/Capability Profile/对话原文
 - 10类可写：个人基础/背景/偏好/人物关系/目标计划/任务约定/知识经验/限制禁忌/健康习惯/物品设备
 - 家/公司地址仅存content，无lat/lng/poi_id
+
+模型路由（PRD v1.24 + Model Lock）：
+- memory_extract: MEMORY_EXTRACT_MODEL (default: qwen-turbo) - 被动评分 + 事实提取 + 10类分类
+- memory_embed: MEMORY_EMBED_MODEL (default: text-embedding-v3) - 向量embedding
+- 全部使用 DashScope/Qwen，通过 OpenAI-compatible API
 """
 
 import re
+import os
 import uuid
 import hashlib
 from typing import Optional, Dict, List, Any, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
+import openai
 
 from ..storage.database import get_db
 from ..storage.models import LongTermMemoryP2
@@ -82,9 +89,12 @@ class SafetyGate:
 
 
 class MemoryClassifier:
-    """记忆分类器：判断归属10类"""
+    """记忆分类器：判断归属10类
     
-    # 简单关键词分类（实际可用LLM）
+    使用 Qwen LLM 进行智能分类（优先），关键词匹配作为fallback
+    """
+    
+    # 简单关键词分类（fallback）
     CATEGORY_KEYWORDS = {
         "personal_basic": ["家", "公司", "地址", "住址", "称呼", "叫我", "名字"],
         "user_preference": ["喜欢", "偏好", "习惯", "常听", "常看", "温度", "空调"],
@@ -98,17 +108,35 @@ class MemoryClassifier:
         "personal_background": ["职业", "工作", "毕业", "学校"],
     }
     
-    @classmethod
-    def classify(cls, content: str) -> Optional[str]:
+    def __init__(self, llm_client: Optional['QwenMemoryExtractor'] = None):
+        """
+        Args:
+            llm_client: Qwen记忆提取客户端（如为None则使用关键词fallback）
+        """
+        self.llm_client = llm_client
+    
+    def classify(self, content: str, llm_result: Optional[Dict] = None) -> Optional[str]:
         """分类内容到10类之一
+        
+        Args:
+            content: 内容文本
+            llm_result: LLM提取结果（如有）
         
         Returns:
             category key or None（归不进10类则丢弃）
         """
+        # 如果LLM已经分类，直接使用
+        if llm_result and 'category' in llm_result:
+            category = llm_result['category']
+            if category in MEMORY_CATEGORIES:
+                return category
+            print(f"[MemoryClassifier] LLM category not in 10 classes: {category}")
+        
+        # Fallback: 关键词分类
         # 统计每个类别的关键词命中数
         scores = {cat: 0 for cat in MEMORY_CATEGORIES.keys()}
         
-        for cat, keywords in cls.CATEGORY_KEYWORDS.items():
+        for cat, keywords in self.CATEGORY_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in content:
                     scores[cat] += 1
@@ -131,13 +159,22 @@ class PassiveExtractor:
     PRD v1.24 锁定公式：
     score = 0.4 * long_term + 0.3 * stability + 0.3 * personal
     threshold = 0.7（可配置）
+    
+    使用 Qwen LLM 进行智能评分和事实提取
     """
     
     # PRD v1.24: 默认阈值0.7（可通过配置调整）
     DEFAULT_THRESHOLD = 0.7
     
-    @staticmethod
+    def __init__(self, llm_client: Optional['QwenMemoryExtractor'] = None):
+        """
+        Args:
+            llm_client: Qwen记忆提取客户端（如为None则使用规则fallback）
+        """
+        self.llm_client = llm_client
+    
     def should_extract(
+        self,
         utterance: str,
         assistant_response: str,
         context: Dict[str, Any],
@@ -157,16 +194,20 @@ class PassiveExtractor:
         if threshold is None:
             threshold = PassiveExtractor.DEFAULT_THRESHOLD
         
-        # PRD v1.24: 加权公式 0.4 * long_term + 0.3 * stability + 0.3 * personal
+        # 如果有LLM客户端，使用LLM评分
+        if self.llm_client:
+            try:
+                result = self.llm_client.score_utterance(utterance, assistant_response, timeout=3.0)
+                if result:
+                    score = result.get('score', 0.0)
+                    return (score >= threshold, score)
+            except Exception as e:
+                print(f"[PassiveExtractor] LLM scoring failed, fallback to rules: {e}")
         
-        # 长期性（0.0-1.0）：不是一次性临时信息
-        long_term_score = PassiveExtractor._calculate_long_term_score(utterance)
-        
-        # 稳定性（0.0-1.0）：不是情绪性或单次事实
-        stability_score = PassiveExtractor._calculate_stability_score(utterance)
-        
-        # 个人属性（0.0-1.0）：关于用户自己
-        personal_score = PassiveExtractor._calculate_personal_score(utterance)
+        # Fallback: 规则评分（PRD v1.24加权公式）
+        long_term_score = self._calculate_long_term_score(utterance)
+        stability_score = self._calculate_stability_score(utterance)
+        personal_score = self._calculate_personal_score(utterance)
         
         # 加权求和
         score = 0.4 * long_term_score + 0.3 * stability_score + 0.3 * personal_score
@@ -247,13 +288,22 @@ class PassiveExtractor:
         # 默认中等
         return 0.5
     
-    @staticmethod
-    def extract_facts(utterance: str, response: str) -> List[str]:
-        """从对话中提取事实（简化版，实际可用LLM）
+    def extract_facts(self, utterance: str, response: str) -> List[str]:
+        """从对话中提取事实
         
         Returns:
             归一化的事实列表
         """
+        # 如果有LLM客户端，使用LLM提取
+        if self.llm_client:
+            try:
+                result = self.llm_client.extract_facts(utterance, response, timeout=3.0)
+                if result and result.get('facts'):
+                    return result['facts']
+            except Exception as e:
+                print(f"[PassiveExtractor] LLM extraction failed, fallback to rules: {e}")
+        
+        # Fallback: 规则提取
         facts = []
         
         # 简单提取模式
@@ -276,17 +326,49 @@ class PassiveExtractor:
 
 
 class P2MemoryService:
-    """P2长期记忆服务主入口"""
+    """P2长期记忆服务主入口
     
-    def __init__(self, enable_vector: bool = True):
+    集成 Qwen 模型：
+    - memory_extract (qwen-turbo): 被动评分 + 事实提取 + 10类分类
+    - memory_embed (text-embedding-v3): 向量embedding (1536维)
+    """
+    
+    def __init__(
+        self, 
+        enable_vector: bool = True,
+        extract_model: Optional[str] = None,
+        embed_model: Optional[str] = None
+    ):
         """
         Args:
             enable_vector: 是否启用向量召回（P0可False，P2需True）
+            extract_model: 提取模型名称（默认qwen-turbo）
+            embed_model: Embedding模型名称（默认text-embedding-v3）
         """
         self.enable_vector = enable_vector
         self.safety_gate = SafetyGate()
-        self.classifier = MemoryClassifier()
-        self.passive_extractor = PassiveExtractor()
+        
+        # 初始化Qwen客户端（失败时使用规则fallback）
+        try:
+            from .qwen_clients import QwenMemoryExtractor, QwenEmbedding
+            
+            self.extractor_client = QwenMemoryExtractor(model=extract_model)
+            self.classifier = MemoryClassifier(llm_client=self.extractor_client)
+            self.passive_extractor = PassiveExtractor(llm_client=self.extractor_client)
+            
+            if enable_vector:
+                self.embedding_client = QwenEmbedding(model=embed_model)
+            else:
+                self.embedding_client = None
+            
+            print(f"[P2Memory] Initialized with Qwen models (extract={self.extractor_client.model}, embed={self.embedding_client.model if self.embedding_client else 'disabled'})")
+        
+        except Exception as e:
+            print(f"[P2Memory] Warning: Qwen client init failed, using rule fallback: {e}")
+            self.extractor_client = None
+            self.classifier = MemoryClassifier(llm_client=None)
+            self.passive_extractor = PassiveExtractor(llm_client=None)
+            self.embedding_client = None
     
     def put_memory(
         self,
@@ -315,8 +397,9 @@ class P2MemoryService:
             self._log_audit('memory_put_blocked', user_id, trace_id, reason)
             return None
         
-        # 2. 分类
-        category = self.classifier.classify(cleaned)
+        # 2. 分类（优先使用LLM结果）
+        llm_extract_result = None
+        category = self.classifier.classify(cleaned, llm_result=llm_extract_result)
         if category is None:
             print(f"[P2Memory] Cannot classify, discarding: {cleaned[:50]}")
             return None
@@ -609,33 +692,21 @@ class P2MemoryService:
         return len(set1 & set2) / len(set1 | set2)
     
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """生成embedding向量（1024维）
+        """生成embedding向量（1536维，对齐DashScope text-embedding-v3）
         
-        实际应调用embedding模型（如DashScope text-embedding-v3）
-        这里用占位实现
+        使用 Qwen Embedding API
         """
+        if not self.embedding_client:
+            print(f"[P2Memory] Embedding client not initialized")
+            return None
+        
         try:
-            # TODO: 调用真实embedding API
-            # 当前占位：用hash生成伪向量
-            import hashlib
-            import struct
-            
-            hash_bytes = hashlib.sha256(text.encode('utf-8')).digest()
-            # 重复hash生成1024维（每次32字节=8个float）
-            vec = []
-            for i in range(128):  # 128 * 8 = 1024
-                h = hashlib.sha256((text + str(i)).encode('utf-8')).digest()
-                for j in range(0, 32, 4):
-                    val = struct.unpack('f', h[j:j+4])[0]
-                    vec.append(float(val))
-            
-            # 归一化
-            import math
-            norm = math.sqrt(sum(x*x for x in vec))
-            if norm > 0:
-                vec = [x / norm for x in vec]
-            
-            return vec[:1024]
+            embedding = self.embedding_client.embed(text, timeout=5.0)
+            if embedding and len(embedding) == 1536:
+                return embedding
+            else:
+                print(f"[P2Memory] Invalid embedding dimension: {len(embedding) if embedding else 0}")
+                return None
         
         except Exception as e:
             print(f"[P2Memory] Error generating embedding: {e}")

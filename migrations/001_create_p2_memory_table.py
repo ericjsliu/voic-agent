@@ -20,7 +20,7 @@ from app.storage.database import init_db, get_db, _engine
 
 
 def create_p2_memory_table():
-    """创建P2长期记忆表"""
+    """创建P2长期记忆表（1536维向量，对齐DashScope text-embedding-v3）"""
     print("[Migration] Creating long_term_memory_p2 table...")
     
     # 确保pgvector扩展存在
@@ -33,7 +33,7 @@ def create_p2_memory_table():
     from app.storage.models import Base, LongTermMemoryP2
     Base.metadata.create_all(bind=_engine, tables=[LongTermMemoryP2.__table__])
     
-    print("[Migration] Created long_term_memory_p2 table")
+    print("[Migration] Created long_term_memory_p2 table (1536-dim vectors)")
     
     # 创建额外的向量索引（如果需要）
     with _engine.connect() as conn:
@@ -46,11 +46,12 @@ def create_p2_memory_table():
                 WITH (lists = 100)
             """))
             conn.commit()
-            print("[Migration] Created vector index (ivfflat)")
+            print("[Migration] Created vector index (ivfflat, 1536-dim)")
         except Exception as e:
             print(f"[Migration] Vector index creation skipped (may need more data): {e}")
     
     print("[Migration] Migration complete!")
+    print("[Migration] Note: Vector dimension is 1536 to match DashScope text-embedding-v3 and manual_metadata")
 
 
 def verify_table():
