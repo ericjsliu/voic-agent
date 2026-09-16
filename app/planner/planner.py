@@ -106,13 +106,33 @@ class Planner:
         # 构建系统提示
         system_prompt = self._build_system_prompt()
         
+        # Stage 1: 注入相关记忆到用户消息（≤300 token，≤5条）
+        memory_context = ""
+        if context.memory_slice and 'relevant_memories' in context.memory_slice:
+            memories = context.memory_slice['relevant_memories']
+            if memories:
+                memory_lines = []
+                total_chars = 0
+                max_chars = 150  # ~300 tokens (中文约2字符/token)
+                max_items = 5
+                
+                for mem in memories[:max_items]:
+                    line = f"  • [{mem['category']}] {mem['content']}"
+                    if total_chars + len(line) > max_chars:
+                        break
+                    memory_lines.append(line)
+                    total_chars += len(line)
+                
+                if memory_lines:
+                    memory_context = "\n- 相关记忆：\n" + "\n".join(memory_lines)
+        
         # 构建用户消息
         user_message = f"""用户输入：{user_utterance}
 
 当前上下文：
 - 位置：{context.current_location}
 - 最近对话：{context.recent_utterances[-3:] if context.recent_utterances else []}
-- 车辆状态：{context.shadow_state}
+- 车辆状态：{context.shadow_state}{memory_context}
 
 请分析用户意图，生成TaskGraph JSON。确保：
 1. 只使用系统提示列出的合法 domain/action（不要用已废弃的 ac_on、ac_set_temp）
