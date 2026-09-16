@@ -514,6 +514,141 @@ class TestNavigationIntegration:
         assert poi_data['address'] == '北京市海淀区中关村软件园'
         assert poi_data['latitude'] == 0.0
         assert poi_data['longitude'] == 0.0
+    
+    @pytest.mark.asyncio
+    async def test_nav_home_from_full_utterance(self):
+        """测试导航回家（用户说完整话语如"导航回家"）- 回归测试"""
+        from app.adapters.navigation import NavigationAdapter
+        from unittest.mock import Mock, MagicMock
+        
+        # Mock P2MemoryService
+        mock_memory_service = Mock()
+        mock_memory_service.parse_home_company_address = MagicMock(return_value={
+            'home': '北京市朝阳区望京SOHO',
+            'company': None
+        })
+        
+        adapter = NavigationAdapter(p2_memory_service=mock_memory_service)
+        user_id = "account_default:driver1"
+        
+        # 测试各种包含"回家"的完整话语
+        test_utterances = [
+            "导航回家",
+            "帮我导航回家",
+            "我要回家",
+            "带我回家",
+            "导航到家",
+            "去家里"
+        ]
+        
+        for utterance in test_utterances:
+            poi_data = await adapter.resolve_poi(utterance, user_id=user_id)
+            
+            # 验证POI数据
+            assert poi_data is not None, f"Failed to resolve for utterance: {utterance}"
+            assert poi_data['poi_name'] == '家', f"Wrong poi_name for utterance: {utterance}"
+            assert poi_data['address'] == '北京市朝阳区望京SOHO', f"Wrong address for utterance: {utterance}"
+            assert poi_data['latitude'] == 0.0
+            assert poi_data['longitude'] == 0.0
+
+
+class TestEmbeddingClientAPI:
+    """测试Embedding客户端API（OpenAI v1+ SDK）- 回归测试"""
+    
+    def test_embedding_client_initialization(self):
+        """测试QwenEmbedding初始化使用新的OpenAI客户端"""
+        from app.memory.qwen_clients import QwenEmbedding
+        
+        # 初始化客户端
+        client = QwenEmbedding(
+            api_key="test_key",
+            api_base="https://test.api.com/v1"
+        )
+        
+        # 验证客户端属性
+        assert hasattr(client, 'client'), "QwenEmbedding should have 'client' attribute"
+        assert client.model == 'text-embedding-v3'
+        assert client.dimension == 1024
+        assert client.api_base == "https://test.api.com/v1"
+        assert client.api_key == "test_key"
+    
+    def test_embedding_api_call_shape(self):
+        """测试embedding API调用返回正确的向量维度（mock测试）"""
+        from app.memory.qwen_clients import QwenEmbedding
+        from unittest.mock import Mock, MagicMock
+        
+        client = QwenEmbedding()
+        
+        # Mock OpenAI client的embeddings.create方法
+        mock_response = Mock()
+        mock_embedding_obj = Mock()
+        mock_embedding_obj.embedding = [0.1] * 1024  # 1024维向量
+        mock_response.data = [mock_embedding_obj]
+        
+        client.client.embeddings.create = MagicMock(return_value=mock_response)
+        
+        # 调用embed方法
+        result = client.embed("测试文本")
+        
+        # 验证结果
+        assert result is not None, "Embedding should not be None"
+        assert len(result) == 1024, f"Expected 1024 dimensions, got {len(result)}"
+        assert all(isinstance(x, (int, float)) for x in result), "All elements should be numbers"
+        
+        # 验证client.embeddings.create被调用
+        client.client.embeddings.create.assert_called_once()
+        call_args = client.client.embeddings.create.call_args
+        assert call_args[1]['model'] == 'text-embedding-v3'
+        assert call_args[1]['input'] == '测试文本'
+        assert call_args[1]['dimensions'] == 1024
+    
+    def test_embedding_empty_text_returns_none(self):
+        """测试空文本返回None（不生成0维向量）"""
+        from app.memory.qwen_clients import QwenEmbedding
+        
+        client = QwenEmbedding()
+        
+        # 空文本应该返回None
+        assert client.embed("") is None
+        assert client.embed("   ") is None
+        assert client.embed(None) is None
+    
+    def test_embedding_invalid_dimension_returns_none(self):
+        """测试错误维度的embedding返回None"""
+        from app.memory.qwen_clients import QwenEmbedding
+        from unittest.mock import Mock, MagicMock
+        
+        client = QwenEmbedding()
+        
+        # Mock返回错误维度（例如0维或512维）
+        mock_response = Mock()
+        mock_embedding_obj = Mock()
+        mock_embedding_obj.embedding = []  # 0维向量
+        mock_response.data = [mock_embedding_obj]
+        
+        client.client.embeddings.create = MagicMock(return_value=mock_response)
+        
+        # 调用embed方法
+        result = client.embed("测试文本")
+        
+        # 验证返回None（不存储0维向量）
+        assert result is None, "Should return None for 0-dimension embedding"
+    
+    def test_chat_completion_client_initialization(self):
+        """测试QwenMemoryExtractor初始化使用新的OpenAI客户端"""
+        from app.memory.qwen_clients import QwenMemoryExtractor
+        
+        # 初始化客户端
+        client = QwenMemoryExtractor(
+            api_key="test_key",
+            api_base="https://test.api.com/v1"
+        )
+        
+        # 验证客户端属性
+        assert hasattr(client, 'client'), "QwenMemoryExtractor should have 'client' attribute"
+        assert client.model == 'qwen-turbo'
+        assert client.api_base == "https://test.api.com/v1"
+        assert client.api_key == "test_key"
 
 
 if __name__ == '__main__':
