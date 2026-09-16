@@ -196,7 +196,7 @@ class QwenMemoryExtractor:
 class QwenEmbedding:
     """Qwen Embedding客户端
     
-    使用DashScope text-embedding-v3（1536维）
+    使用DashScope text-embedding-v3（1024维，用户锁定）
     """
     
     def __init__(
@@ -220,7 +220,8 @@ class QwenEmbedding:
         openai.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
         
         self.timeout = timeout
-        self.dimension = 1536  # DashScope text-embedding-v3 输出1536维（与OpenAI一致）
+        # 用户锁定：text-embedding-v3 输出1024维
+        self.dimension = int(os.getenv('EMBEDDING_DIMENSIONS', '1024'))
         
         print(f"[QwenEmbedding] Initialized: model={self.model}, dim={self.dimension}, base={openai.api_base}")
     
@@ -236,33 +237,31 @@ class QwenEmbedding:
             timeout: 超时时间（秒）
         
         Returns:
-            1536维向量，失败返回None
+            1024维向量，失败返回None（绝不返回0维占位符）
         """
         timeout = timeout or self.timeout
         
         try:
+            # 显式传递dimensions参数（用户锁定1024）
             response = openai.Embedding.create(
                 model=self.model,
                 input=text,
+                dimensions=self.dimension,
                 timeout=timeout
             )
             
             embedding = response['data'][0]['embedding']
             
-            # 验证维度
+            # 验证维度（必须匹配用户锁定值）
             if len(embedding) != self.dimension:
-                print(f"[QwenEmbedding] Warning: Expected {self.dimension} dims, got {len(embedding)}")
-                # 可选：截断或填充
-                if len(embedding) > self.dimension:
-                    embedding = embedding[:self.dimension]
-                else:
-                    embedding = embedding + [0.0] * (self.dimension - len(embedding))
+                print(f"[QwenEmbedding] ERROR: Expected {self.dimension} dims, got {len(embedding)}")
+                return None  # 失败返回None，绝不写0维占位符
             
             return embedding
         
         except Exception as e:
             print(f"[QwenEmbedding] Embedding failed: {e}")
-            return None
+            return None  # 失败返回None，不阻塞主流程
     
     def embed_batch(
         self,
@@ -276,14 +275,16 @@ class QwenEmbedding:
             timeout: 超时时间（秒）
         
         Returns:
-            向量列表，失败的条目为None
+            向量列表，失败的条目为None（绝不返回0维占位符）
         """
         timeout = timeout or self.timeout
         
         try:
+            # 显式传递dimensions参数（用户锁定1024）
             response = openai.Embedding.create(
                 model=self.model,
                 input=texts,
+                dimensions=self.dimension,
                 timeout=timeout
             )
             
@@ -293,15 +294,13 @@ class QwenEmbedding:
             results = []
             for emb in embeddings:
                 if len(emb) != self.dimension:
-                    print(f"[QwenEmbedding] Warning: Expected {self.dimension} dims, got {len(emb)}")
-                    if len(emb) > self.dimension:
-                        emb = emb[:self.dimension]
-                    else:
-                        emb = emb + [0.0] * (self.dimension - len(emb))
-                results.append(emb)
+                    print(f"[QwenEmbedding] ERROR: Expected {self.dimension} dims, got {len(emb)}")
+                    results.append(None)  # 失败返回None
+                else:
+                    results.append(emb)
             
             return results
         
         except Exception as e:
             print(f"[QwenEmbedding] Batch embedding failed: {e}")
-            return [None] * len(texts)
+            return [None] * len(texts)  # 全部失败

@@ -6,24 +6,23 @@ from .base import BaseDomainAdapter
 from ..schemas.taskgraph import Step, NavigationAction
 
 
-# Mock地图数据：POI名称 -> 坐标
+# TODO: Mock POI database only for non-home/company testing
+# Production paths must NOT use this for home/company resolution
 MOCK_POI_DATABASE = {
-    "家": {"lat": 39.9042, "lon": 116.4074, "address": "北京市东城区"},
-    "公司": {"lat": 39.9163, "lon": 116.3971, "address": "北京市西城区"},
     "超市": {"lat": 39.9100, "lon": 116.4000, "address": "北京市朝阳区"},
     "机场": {"lat": 40.0799, "lon": 116.6031, "address": "北京首都国际机场"},
     "医院": {"lat": 39.9050, "lon": 116.4200, "address": "北京协和医院"},
     "公园": {"lat": 39.8820, "lon": 116.4070, "address": "天坛公园"},
 }
 
-# 口语别名 → 库内 POI（地图工具侧，不是 Planner 切词）
+# 口语别名 → 标准名（地图工具侧，不是 Planner 切词）
 POI_ALIASES = {
     "回家": "家",
     "到家": "家",
     "家里": "家",
     "回公司": "公司",
     "去公司": "公司",
-    "公司": "公司",
+    "单位": "公司",
 }
 
 
@@ -40,16 +39,17 @@ def _pack_poi(key: str) -> Dict[str, Any]:
 class NavigationAdapter(BaseDomainAdapter):
     """导航适配器
     
-    P2增强：
+    P2架构（云端不做geocode）：
     - 从P2 memory读取家/公司地址（content格式："家地址：xxx"）
-    - 当前resolve时用地址文本geocode为POI
-    - 永不回写坐标到memory
+    - 返回address_text给车端，车端自行geocode和导航
+    - 云端不返回坐标，不调用geocode API
+    - 如果memory中没有地址，返回None（让上层询问用户）
     """
     
     def __init__(self, p2_memory_service=None):
         """
         Args:
-            p2_memory_service: P2记忆服务（可选，用于解析家/公司）
+            p2_memory_service: P2记忆服务（必需，用于解析家/公司）
         """
         self.p2_memory_service = p2_memory_service
     
@@ -65,9 +65,14 @@ class NavigationAdapter(BaseDomainAdapter):
             if not action.goal.poi_name:
                 return False, "POI name not resolved"
             
-            # 检查坐标
-            if action.goal.latitude == 0 or action.goal.longitude == 0:
-                return False, "Invalid coordinates"
+            # 家/公司只需要address，其他POI需要坐标
+            if action.goal.poi_name in ["家", "公司"]:
+                if not action.goal.address:
+                    return False, "Home/company address not found in memory"
+            else:
+                # 其他POI需要坐标（如果需要的话）
+                # 对于某些情况，坐标可能为0（由车端解析）
+                pass
         
         return True, None
     
@@ -76,91 +81,69 @@ class NavigationAdapter(BaseDomainAdapter):
         poi_name: str,
         user_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """地图工具：把 LLM 填的目的地名称解析成坐标。
+        """地图工具：解析目的地名称
         
-        P2增强：
-        - 如果poi_name是"家"或"公司"，先从P2 memory读取地址
-        - 用地址文本geocode（这里用mock）
-        - 失败时回退到本地 POI / 别名解析
+        云端架构（不做geocode）：
+        - 如果是"家"或"公司"：从P2 memory读取地址文本，返回address_text（无坐标）
+        - 如果memory中没有地址：返回None（上层应询问用户）
+        - 其他POI：使用mock数据（TODO: 生产环境应移除或标记为测试用）
+        - **绝不**返回fake home/company坐标（如北京市东城区）
         """
         text = (poi_name or "").strip()
         if not text:
             return None
-
-        # P2: 尝试从记忆解析家/公司
-        if text in ["家", "回家", "家里", "到家"] and user_id and self.p2_memory_service:
-            addresses = self.p2_memory_service.parse_home_company_address(user_id)
-            home_addr = addresses.get('home')
-            
-            if home_addr:
-                print(f"[NavAdapter] Resolved home from P2 memory: {home_addr}")
-                poi_data = await self._geocode_address(home_addr, poi_name="家")
-                if poi_data:
-                    return poi_data
-                else:
-                    print(f"[NavAdapter] Geocode failed for home: {home_addr}")
-                    return None
         
-        if text in ["公司", "去公司", "回公司", "单位"] and user_id and self.p2_memory_service:
-            addresses = self.p2_memory_service.parse_home_company_address(user_id)
-            company_addr = addresses.get('company')
+        # 标准化别名
+        if text in POI_ALIASES:
+            text = POI_ALIASES[text]
+
+        # 家/公司：从P2 memory读取地址（云端不做geocode）
+        if text in ["家", "公司"]:
+            if not user_id or not self.p2_memory_service:
+                print(f"[NavAdapter] Cannot resolve {text}: no user_id or memory service")
+                return None
             
-            if company_addr:
-                print(f"[NavAdapter] Resolved company from P2 memory: {company_addr}")
-                poi_data = await self._geocode_address(company_addr, poi_name="公司")
-                if poi_data:
-                    return poi_data
+            addresses = self.p2_memory_service.parse_home_company_address(user_id)
+            
+            if text == "家":
+                home_addr = addresses.get('home')
+                if home_addr:
+                    print(f"[NavAdapter] Resolved home from P2 memory: {home_addr}")
+                    return {
+                        "poi_name": "家",
+                        "address": home_addr,
+                        "latitude": 0.0,  # 云端不返回坐标，车端自行geocode
+                        "longitude": 0.0,
+                    }
                 else:
-                    print(f"[NavAdapter] Geocode failed for company: {company_addr}")
+                    print(f"[NavAdapter] Home address not found in memory for user {user_id}")
+                    return None
+            
+            elif text == "公司":
+                company_addr = addresses.get('company')
+                if company_addr:
+                    print(f"[NavAdapter] Resolved company from P2 memory: {company_addr}")
+                    return {
+                        "poi_name": "公司",
+                        "address": company_addr,
+                        "latitude": 0.0,  # 云端不返回坐标，车端自行geocode
+                        "longitude": 0.0,
+                    }
+                else:
+                    print(f"[NavAdapter] Company address not found in memory for user {user_id}")
                     return None
 
+        # TODO: 其他POI使用mock数据，生产环境应移除或接入真实地图服务
         if text in MOCK_POI_DATABASE:
             return _pack_poi(text)
 
-        if text in POI_ALIASES:
-            return _pack_poi(POI_ALIASES[text])
-
-        for alias, key in POI_ALIASES.items():
-            if alias in text:
-                return _pack_poi(key)
-
-        # 库内标准名被包含在 query 中（如「导航到机场」）
+        # 检查库内标准名是否在query中
         for key in MOCK_POI_DATABASE:
             if len(key) >= 2 and (key in text or text in key):
                 return _pack_poi(key)
 
-        return None
-    
-    async def _geocode_address(
-        self, 
-        address: str, 
-        poi_name: str
-    ) -> Optional[Dict[str, Any]]:
-        """地址文本转坐标（mock实现）
-        
-        实际应调用地图服务API（如高德、百度地图）
-        
-        Args:
-            address: 地址文本
-            poi_name: POI名称（用于fallback）
-        
-        Returns:
-            POI数据或None
-        """
-        # Mock实现：如果地址包含关键词，返回mock坐标
-        # 实际应调用 geocoding API
-        
-        # 这里简化：直接用MOCK_POI_DATABASE的fallback
-        if poi_name in MOCK_POI_DATABASE:
-            poi_data = MOCK_POI_DATABASE[poi_name]
-            return {
-                "poi_name": poi_name,
-                "latitude": poi_data["lat"],
-                "longitude": poi_data["lon"],
-                "address": address,  # 使用真实地址文本
-            }
-        
-        # 无法geocode
+        # 未找到POI
+        print(f"[NavAdapter] POI not found: {text}")
         return None
     
     async def execute(self, step: Step, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,20 +158,37 @@ class NavigationAdapter(BaseDomainAdapter):
         }
         
         if action.action in ("nav_to", "set_nav_goal") and action.goal:
-            result.update({
-                "goal": {
-                    "poi_name": action.goal.poi_name,
-                    "latitude": action.goal.latitude,
-                    "longitude": action.goal.longitude,
-                    "address": action.goal.address,
-                },
-                "route_prefs": {
-                    "avoid_highway": action.route_prefs.avoid_highway,
-                    "avoid_toll": action.route_prefs.avoid_toll,
-                    "avoid_ferry": action.route_prefs.avoid_ferry,
-                    "strategy": action.route_prefs.strategy.value,
-                    "via_points": action.route_prefs.via_points,
-                }
-            })
+            # 家/公司：只发送address_text给车端
+            if action.goal.poi_name in ["家", "公司"]:
+                result.update({
+                    "goal": {
+                        "type": action.goal.poi_name,  # "家" or "公司"
+                        "address_text": action.goal.address,  # 地址文本（车端自行geocode）
+                    },
+                    "route_prefs": {
+                        "avoid_highway": action.route_prefs.avoid_highway,
+                        "avoid_toll": action.route_prefs.avoid_toll,
+                        "avoid_ferry": action.route_prefs.avoid_ferry,
+                        "strategy": action.route_prefs.strategy.value,
+                        "via_points": action.route_prefs.via_points,
+                    }
+                })
+            else:
+                # 其他POI：发送完整信息
+                result.update({
+                    "goal": {
+                        "poi_name": action.goal.poi_name,
+                        "latitude": action.goal.latitude,
+                        "longitude": action.goal.longitude,
+                        "address": action.goal.address,
+                    },
+                    "route_prefs": {
+                        "avoid_highway": action.route_prefs.avoid_highway,
+                        "avoid_toll": action.route_prefs.avoid_toll,
+                        "avoid_ferry": action.route_prefs.avoid_ferry,
+                        "strategy": action.route_prefs.strategy.value,
+                        "via_points": action.route_prefs.via_points,
+                    }
+                })
         
         return result

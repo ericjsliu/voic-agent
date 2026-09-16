@@ -163,8 +163,9 @@ class Planner:
         # HOTFIX: 注入trace_id（LLM不会生成此字段）
         taskgraph_data["trace_id"] = trace_id
         
-        # 后处理：解析POI
-        await self._resolve_pois_in_taskgraph(taskgraph_data)
+        # 后处理：解析POI（需要user_id用于家/公司地址）
+        user_id = f"account_default:{context.session_info.driver_id}" if context.session_info.driver_id else None
+        await self._resolve_pois_in_taskgraph(taskgraph_data, user_id)
         
         # 验证并返回
         taskgraph = TaskGraph(**taskgraph_data)
@@ -210,7 +211,9 @@ class Planner:
         
         # 规则1: 导航 — 目的地不切词，整句交给地图工具 resolve_poi
         if any(keyword in utterance_lower for keyword in ["导航", "去", "到", "路线"]):
-            poi_data = await self.nav_adapter.resolve_poi(user_utterance)
+            # 提取user_id用于解析家/公司地址
+            user_id = f"account_default:{context.session_info.driver_id}" if context.session_info.driver_id else None
+            poi_data = await self.nav_adapter.resolve_poi(user_utterance, user_id=user_id)
             if poi_data:
                 from ..schemas.taskgraph import NavigationAction, NavGoal, RoutePreferences
                 step = Step(
@@ -222,6 +225,22 @@ class Planner:
                         route_prefs=RoutePreferences()
                     ),
                     description=f"导航到{poi_data['poi_name']}"
+                )
+                steps.append(step)
+            else:
+                # POI未找到（如家/公司地址不在memory中），询问用户
+                from ..schemas.taskgraph import ChitchatAction
+                # 判断是否是家/公司
+                is_home_company = any(kw in user_utterance for kw in ["家", "回家", "到家", "家里", "公司", "去公司", "回公司", "单位"])
+                if is_home_company:
+                    response = "您还没有设置家/公司地址，请告诉我具体地址，比如：帮我记住家地址是望京SOHO"
+                else:
+                    response = "没找到这个目的地，可以说得更具体一些吗？"
+                step = Step(
+                    step_id=f"step_{len(steps)+1}",
+                    domain=DomainType.CHITCHAT,
+                    action=ChitchatAction(response=response, level=ActionLevel.L0),
+                    description="目的地未找到"
                 )
                 steps.append(step)
         
@@ -451,10 +470,10 @@ class Planner:
 5. 手册问答禁止落到 chitchat
 """
     
-    async def _nav_goal_from_tool(self, query: str):
+    async def _nav_goal_from_tool(self, query: str, user_id: Optional[str] = None):
         """调用地图工具 resolve_poi，用查询串解析坐标（不在 Planner 里切词）。"""
         from ..schemas.taskgraph import NavGoal
-        poi = await self.nav_adapter.resolve_poi(query)
+        poi = await self.nav_adapter.resolve_poi(query, user_id=user_id)
         if not poi:
             return None
         return NavGoal(**poi)
@@ -484,7 +503,7 @@ class Planner:
                     return query if query else None
         return None
     
-    async def _resolve_pois_in_taskgraph(self, taskgraph_data: Dict[str, Any]):
+    async def _resolve_pois_in_taskgraph(self, taskgraph_data: Dict[str, Any], user_id: Optional[str] = None):
         """LLM 填好 poi_name 后，调用地图工具补坐标。"""
         for task in taskgraph_data.get("tasks", []):
             for step in task.get("steps", []):
@@ -496,7 +515,7 @@ class Planner:
                 goal = action.get("goal")
                 if not goal or not isinstance(goal.get("poi_name"), str):
                     continue
-                poi_data = await self.nav_adapter.resolve_poi(goal["poi_name"])
+                poi_data = await self.nav_adapter.resolve_poi(goal["poi_name"], user_id=user_id)
                 if poi_data:
                     goal.update(poi_data)
     
@@ -535,6 +554,9 @@ class Planner:
         session_id = context.session_info.session_id
         task_id = str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat() + "Z"
+        
+        # 提取user_id用于解析家/公司地址
+        user_id = f"account_default:{context.session_info.driver_id}" if context.session_info.driver_id else None
 
         if gated.domain == ForcedDomain.KNOWLEDGE:
             step = Step(
@@ -552,7 +574,7 @@ class Planner:
             )
         elif gated.domain == ForcedDomain.NAVIGATION:
             from ..schemas.taskgraph import NavigationAction, RoutePreferences
-            goal = await self._nav_goal_from_tool(user_utterance)
+            goal = await self._nav_goal_from_tool(user_utterance, user_id=user_id)
             if goal is None:
                 step = Step(
                     step_id="step_1",
@@ -636,6 +658,10 @@ class Planner:
         gated = classify_intent(user_utterance)
         if gated is None or not taskgraph.tasks:
             return taskgraph
+        
+        # 提取user_id用于解析家/公司地址
+        user_id = f"account_default:{context.session_info.driver_id}" if context.session_info.driver_id else None
+        
         steps = taskgraph.tasks[0].steps
         domains = {s.domain for s in steps}
         if gated.domain == ForcedDomain.KNOWLEDGE and DomainType.KNOWLEDGE not in domains:
@@ -659,7 +685,7 @@ class Planner:
         elif gated.domain == ForcedDomain.NAVIGATION and DomainType.NAVIGATION not in domains:
             print("[Planner] Guardrail: forcing navigation over LLM misroute")
             from ..schemas.taskgraph import NavigationAction, RoutePreferences
-            goal = await self._nav_goal_from_tool(user_utterance)
+            goal = await self._nav_goal_from_tool(user_utterance, user_id=user_id)
             if goal is not None:
                 taskgraph.tasks[0].steps = [Step(
                     step_id="step_1",

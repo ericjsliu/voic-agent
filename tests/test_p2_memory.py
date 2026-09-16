@@ -38,6 +38,23 @@ class TestSafetyGate:
         assert status == 'BLOCK'
         assert 'phone' in reason
     
+    def test_block_phone_number_chinese_prefix(self):
+        """测试阻止手机号（中文前缀，修复\b边界问题）"""
+        gate = SafetyGate()
+        
+        # 中文前缀 + 手机号（之前的\b会失败）
+        test_cases = [
+            "住我的手机号是13812345678",
+            "记住13912345678这个号码",
+            "我手机13712345678",
+            "电话是13612345678",
+        ]
+        
+        for content in test_cases:
+            status, reason, _ = gate.check(content)
+            assert status == 'BLOCK', f"Should block: {content}"
+            assert 'phone' in reason, f"Wrong reason for: {content}"
+    
     def test_block_id_card(self):
         """测试阻止身份证号"""
         gate = SafetyGate()
@@ -70,6 +87,22 @@ class TestSafetyGate:
         assert status == 'PASS'
         assert reason is None
         assert cleaned == "我家在北京市朝阳区"
+    
+    def test_pass_normal_digits(self):
+        """测试正常数字内容通过（非PII）"""
+        gate = SafetyGate()
+        
+        # 正常的数字不应该被误判
+        test_cases = [
+            "我住在朝阳区100号",
+            "车牌号是京A12345",
+            "房间号是1234",
+        ]
+        
+        for content in test_cases:
+            status, reason, cleaned = gate.check(content)
+            assert status == 'PASS', f"Should pass: {content}"
+            assert cleaned == content
 
 
 class TestMemoryClassifier:
@@ -187,17 +220,20 @@ class TestPassiveExtractor:
         """测试PRD v1.24加权公式：0.4*long + 0.3*stability + 0.3*personal"""
         extractor = PassiveExtractor()
         
-        # 人工构造：中等长期(0.5) + 高稳定(0.9) + 高个人(0.9)
-        # score = 0.4*0.5 + 0.3*0.9 + 0.3*0.9 = 0.2 + 0.27 + 0.27 = 0.74
+        # 人工构造：高长期(0.9) + 高稳定(0.9) + 高个人(0.9)
+        # "我经常在这条路上开" 包含 "我"(个人) + "经常"(长期+稳定)
+        # score = 0.4*0.9 + 0.3*0.9 + 0.3*0.9 = 0.36 + 0.27 + 0.27 = 0.90
         should, score = extractor.should_extract(
-            utterance="我经常在这条路上开",  # 无明确家/公司，但有经常+我
+            utterance="我经常在这条路上开",
             assistant_response="",
             context={}
         )
         
         # 应该超过阈值0.7
         assert should is True
-        assert 0.70 <= score <= 0.80
+        assert score >= 0.7, f"Score {score} should be >= 0.7"
+        # 实际应该接近0.9
+        assert score >= 0.85, f"Score {score} should be >= 0.85 for high long_term + stability + personal"
     
     def test_custom_threshold(self):
         """测试自定义阈值"""
@@ -262,8 +298,10 @@ class TestP2MemoryService:
     @pytest.fixture(autouse=True)
     def setup_db(self):
         """设置测试数据库"""
-        # 使用测试数据库
-        os.environ['DATABASE_URL'] = 'postgresql://cockpit:cockpit@localhost:5432/cockpit_agent_test'
+        # 使用环境变量DATABASE_URL，如果没有则使用默认值
+        # 允许CI/容器环境覆盖
+        if 'DATABASE_URL' not in os.environ:
+            os.environ['DATABASE_URL'] = 'postgresql://cockpit:cockpit@postgres:5432/cockpit_agent_test'
         
         try:
             init_db()
@@ -373,16 +411,18 @@ class TestNavigationIntegration:
     
     @pytest.mark.asyncio
     async def test_nav_home_from_memory(self):
-        """M-N1: 导航回家（从content解析地址）"""
+        """M-N1: 导航回家（从content获取地址文本，云端不返回坐标）"""
         from app.adapters.navigation import NavigationAdapter
         
         # 创建P2服务并存储家地址
         service = P2MemoryService(enable_vector=False)
         user_id = "account_test:driver_006"
         
+        # 存储家地址到memory
+        home_address = "北京市朝阳区望京SOHO T1"
         service.put_memory(
             user_id=user_id,
-            content="家地址：北京市朝阳区",
+            content=f"家地址：{home_address}",
             source_ref="test:nav",
             is_active=True
         )
@@ -393,15 +433,54 @@ class TestNavigationIntegration:
         # 解析"家"
         poi_data = await adapter.resolve_poi("家", user_id=user_id)
         
+        # 验证POI数据
         assert poi_data is not None
         assert poi_data['poi_name'] == '家'
-        assert 'latitude' in poi_data
-        assert 'longitude' in poi_data
-        # 地址应该是从memory读取的
-        assert "北京市朝阳区" in poi_data.get('address', '')
+        
+        # 云端架构：只返回地址文本，不返回坐标（车端自行geocode）
+        assert poi_data['address'] == home_address
+        assert poi_data['latitude'] == 0.0
+        assert poi_data['longitude'] == 0.0
+        
+        # 验证execute返回的下行消息包含address_text
+        from app.schemas.taskgraph import Step, DomainType, NavigationAction, NavGoal, RoutePreferences
+        step = Step(
+            step_id="step_1",
+            domain=DomainType.NAVIGATION,
+            action=NavigationAction(
+                action="set_nav_goal",
+                goal=NavGoal(**poi_data),
+                route_prefs=RoutePreferences()
+            ),
+            description="导航到家"
+        )
+        
+        result = await adapter.execute(step, {})
+        
+        # 验证下行消息格式（家/公司使用address_text）
+        assert result['goal']['type'] == '家'
+        assert result['goal']['address_text'] == home_address
+        assert 'latitude' not in result['goal']  # 云端不下发坐标
+        assert 'longitude' not in result['goal']
         
         # 清理
         service.clear_user_memories(user_id)
+    
+    @pytest.mark.asyncio
+    async def test_nav_home_not_in_memory(self):
+        """测试导航回家但memory中没有地址（应返回None，让planner询问用户）"""
+        from app.adapters.navigation import NavigationAdapter
+        
+        service = P2MemoryService(enable_vector=False)
+        user_id = "account_test:driver_007"
+        
+        # 不存储任何地址
+        adapter = NavigationAdapter(p2_memory_service=service)
+        
+        # 解析"家"应该返回None（因为memory中没有）
+        poi_data = await adapter.resolve_poi("家", user_id=user_id)
+        
+        assert poi_data is None  # 没有mock fallback，必须返回None
 
 
 if __name__ == '__main__':
