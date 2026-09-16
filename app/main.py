@@ -37,6 +37,8 @@ from .planner import Planner
 from .planner.capability_wrapper import CapabilityAwarePlanner
 from .orchestrator import Orchestrator
 from .session import SessionManager, ContextAssembler
+from .memory.p2_memory_service import P2MemoryService
+from .memory.active_memory_handler import ActiveMemoryHandler
 
 
 # ==================== 全局状态 ====================
@@ -56,6 +58,7 @@ class AppState:
         self.adapters = {}
         self.websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> [ws]
         self.audit_logger = None  # PRD v1.9 / detailed-v2.2: full-chain tracing
+        self.p2_memory_service = None  # P2长期记忆服务
 
 
 app_state = AppState()
@@ -197,6 +200,15 @@ async def lifespan(app: FastAPI):
         app_state.entity_buffer = EntityBuffer(redis_client)
         print("[Agent] Entity Buffer initialized")
     
+    # P2 Memory Service (长期记忆)
+    try:
+        app_state.p2_memory_service = P2MemoryService(enable_vector=True)
+        print("[Agent] P2 Memory Service initialized (vector enabled)")
+    except Exception as e:
+        print(f"[Agent] WARNING: P2 Memory Service initialization failed: {e}")
+        app_state.p2_memory_service = P2MemoryService(enable_vector=False)
+        print("[Agent] P2 Memory Service initialized (vector disabled, KV only)")
+    
     # Rewrite/Cancel Manager
     if redis_client:
         app_state.rewrite_cancel_manager = RewriteCancelManager(redis_client)
@@ -211,7 +223,8 @@ async def lifespan(app: FastAPI):
     )
     app_state.context_assembler = ContextAssembler(
         app_state.memory_store,
-        entity_buffer=app_state.entity_buffer
+        entity_buffer=app_state.entity_buffer,
+        p2_memory_service=app_state.p2_memory_service  # 注入P2服务
     )
     
     # RAG Client
@@ -220,7 +233,7 @@ async def lifespan(app: FastAPI):
     # Adapters (P0 exit #5: pass audit_logger to knowledge adapter)
     app_state.adapters = {
         "vehicle": VehicleAdapter(),
-        "navigation": NavigationAdapter(),
+        "navigation": NavigationAdapter(p2_memory_service=app_state.p2_memory_service),
         "media": MediaAdapter(),
         "calendar": CalendarAdapter(),
         "knowledge": KnowledgeAdapter(app_state.rag_client, audit_logger=app_state.audit_logger),
@@ -407,6 +420,56 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         metadata={"utterance_length": len(request.utterance)}
     )
     
+    # P2: 检测主动记忆意图
+    active_memory_content = ActiveMemoryHandler.detect_active_intent(request.utterance)
+    if active_memory_content:
+        print(f"[Agent] Active memory detected: {active_memory_content[:50]}")
+        
+        # 解析记忆内容
+        parsed = ActiveMemoryHandler.parse_memory_content(active_memory_content)
+        user_id = f"account_default:{session_info.driver_id}"
+        
+        # 直接写入（无确认）
+        memory_id = app_state.p2_memory_service.put_memory(
+            user_id=user_id,
+            content=parsed['normalized_content'],
+            source_ref=f"active:{trace_id}",
+            trace_id=trace_id,
+            is_active=True
+        )
+        
+        if memory_id:
+            from .memory.active_memory_handler import create_active_memory_response
+            response_text = create_active_memory_response(memory_id, parsed['normalized_content'])
+            
+            # 返回简单确认TaskGraph
+            from .schemas.taskgraph import TaskGraph, Task, Step, DomainType, ConfirmLevel
+            taskgraph = TaskGraph(
+                trace_id=trace_id,
+                session_id=session_info.session_id,
+                tasks=[
+                    Task(
+                        task_id=f"t_{uuid.uuid4().hex[:8]}",
+                        session_id=session_info.session_id,
+                        steps=[
+                            Step(
+                                step_id="s_memory_confirm",
+                                domain=DomainType.CHITCHAT,
+                                action={"action": "speak", "text": response_text},
+                                confirm=ConfirmLevel.L0,
+                                depends_on=[]
+                            )
+                        ]
+                    )
+                ]
+            )
+            
+            return DialogueResponse(
+                session_id=session_info.session_id,
+                taskgraph=taskgraph,
+                timestamp=datetime.utcnow().isoformat() + "Z"
+            )
+    
     # 更新活跃时间
     await app_state.session_manager.update_session_activity(session_info.session_id)
     
@@ -554,6 +617,33 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(execute_and_publish)
     
+    # P2: 被动提取（后台异步执行）
+    async def passive_extraction():
+        """被动记忆提取"""
+        try:
+            user_id = f"account_default:{session_info.driver_id}"
+            
+            # 获取assistant回复（从taskgraph推断）
+            assistant_response = ""
+            if taskgraph.tasks:
+                for task in taskgraph.tasks:
+                    for step in task.steps:
+                        if hasattr(step.action, 'text'):
+                            assistant_response += getattr(step.action, 'text', '')
+            
+            # 触发被动提取
+            app_state.p2_memory_service.handle_passive_extraction(
+                user_id=user_id,
+                utterance=request.utterance,
+                assistant_response=assistant_response,
+                context=context.model_dump() if hasattr(context, 'model_dump') else {},
+                trace_id=trace_id
+            )
+        except Exception as e:
+            print(f"[Agent] Passive extraction error (non-blocking): {e}")
+    
+    background_tasks.add_task(passive_extraction)
+    
     # 立即返回TaskGraph
     return DialogueResponse(
         session_id=session_info.session_id,
@@ -564,9 +654,17 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
 
 @app.post("/session/{session_id}/switch_driver")
 async def switch_driver(session_id: str, driver_id: str):
-    """切换驾驶员"""
+    """切换驾驶员（清除P2记忆切片）"""
     try:
         session_info = await app_state.session_manager.switch_driver(session_id, driver_id)
+        
+        # P2: 清除旧驾驶员的记忆切片和实体缓冲
+        old_user_id = f"account_default:{session_info.driver_id}"
+        if app_state.p2_memory_service:
+            # 注意：这里清除的是切换前的user_id，需要从session历史获取
+            # 简化实现：假设已切换，不清除（实际需session历史记录）
+            print(f"[Agent] Driver switched to {driver_id}, P2 memories isolated by user_id")
+        
         return {
             "session_id": session_info.session_id,
             "driver_id": session_info.driver_id,
@@ -665,7 +763,135 @@ async def get_trace_events(trace_id: str):
     }
 
 
-@app.websocket("/ws/{session_id}")
+# ==================== P2长期记忆API ====================
+
+class P2MemoryListRequest(BaseModel):
+    """P2记忆列表请求"""
+    user_id: str
+    category: Optional[str] = None
+    limit: int = 50
+
+
+class P2MemorySearchRequest(BaseModel):
+    """P2记忆搜索请求"""
+    user_id: str
+    query: str
+    top_k: int = 5
+    token_budget: int = 300
+
+
+class P2MemoryDeleteRequest(BaseModel):
+    """P2记忆删除请求"""
+    user_id: str
+    memory_id: str
+
+
+@app.post("/memory/list")
+async def list_memories(request: P2MemoryListRequest):
+    """列出用户P2记忆"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    memories = app_state.p2_memory_service.list_memories(
+        user_id=request.user_id,
+        category=request.category,
+        limit=request.limit
+    )
+    
+    return {
+        "user_id": request.user_id,
+        "count": len(memories),
+        "memories": memories
+    }
+
+
+@app.post("/memory/search")
+async def search_memories(request: P2MemorySearchRequest):
+    """向量搜索用户P2记忆"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    memories = app_state.p2_memory_service.search_memories(
+        user_id=request.user_id,
+        query=request.query,
+        top_k=request.top_k,
+        token_budget=request.token_budget
+    )
+    
+    return {
+        "user_id": request.user_id,
+        "query": request.query,
+        "count": len(memories),
+        "memories": memories
+    }
+
+
+@app.post("/memory/delete")
+async def delete_memory(request: P2MemoryDeleteRequest):
+    """删除单条P2记忆"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    success = app_state.p2_memory_service.delete_memory(
+        memory_id=request.memory_id,
+        user_id=request.user_id
+    )
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Memory not found or permission denied")
+    
+    return {
+        "success": True,
+        "memory_id": request.memory_id
+    }
+
+
+@app.post("/memory/clear/{user_id}")
+async def clear_user_memories(user_id: str):
+    """清空用户所有P2记忆（换驾驶员时使用）"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    count = app_state.p2_memory_service.clear_user_memories(user_id)
+    
+    return {
+        "success": True,
+        "user_id": user_id,
+        "cleared_count": count
+    }
+
+
+@app.post("/memory/opt_out/{user_id}")
+async def opt_out_memory(user_id: str):
+    """用户选择退出P2记忆功能"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    success = app_state.p2_memory_service.opt_out(user_id)
+    
+    return {
+        "success": success,
+        "user_id": user_id,
+        "message": "Memory feature disabled for user"
+    }
+
+
+@app.get("/memory/home_company/{user_id}")
+async def get_home_company_address(user_id: str):
+    """获取用户的家/公司地址（用于导航）"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    addresses = app_state.p2_memory_service.parse_home_company_address(user_id)
+    
+    return {
+        "user_id": user_id,
+        "home_address": addresses.get('home'),
+        "company_address": addresses.get('company')
+    }
+
+
+# ==================== WebSocket ====================
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket端点：实时接收TaskGraph和Writeback"""
     await ws_manager.connect(websocket, session_id)

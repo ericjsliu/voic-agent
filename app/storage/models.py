@@ -162,3 +162,32 @@ class AuditEventLog(Base):
         Index('idx_session_timestamp', 'session_id', 'timestamp'),
         Index('idx_event_type_timestamp', 'event_type', 'timestamp'),
     )
+
+
+class LongTermMemoryP2(Base):
+    """长期记忆P2主表（标准9字段，详细技术方案 §11.13.6）
+    
+    支持：主动记忆 + 被动提取 + 向量召回
+    - 10类可写：个人基础/背景/偏好/人物关系/目标计划/任务约定/知识经验/限制禁忌/健康习惯/物品设备
+    - 硬黑名单：PII/病历/轨迹/Capability Profile/对话原文
+    - 家/公司地址存content，无单独address/poi字段
+    - 驾驶员隔离：user_id编码为accountId:driverId
+    """
+    __tablename__ = "long_term_memory_p2"
+    
+    # 标准9字段
+    memory_id = Column(String(255), primary_key=True)  # 全局唯一ID
+    user_id = Column(String(255), nullable=False, index=True)  # 账号维度分片键（accountId:driverId）
+    content = Column(Text, nullable=False)  # 归一化记忆正文（家/公司以"家地址：xxx"格式存储）
+    category = Column(String(50), nullable=False, index=True)  # 10类之一
+    embedding = Column(Vector(1024), nullable=True)  # 语义向量（P0可空，P2填充）
+    weight = Column(Float, default=1.0, nullable=False)  # 热度权重
+    version_id = Column(Integer, default=1, nullable=False)  # 冲突版本ID
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    source_ref = Column(String(500), nullable=True)  # 来源消息引用（脱敏，无原文）
+    
+    __table_args__ = (
+        Index('idx_user_category', 'user_id', 'category'),
+        Index('idx_user_updated', 'user_id', 'updated_at'),
+    )

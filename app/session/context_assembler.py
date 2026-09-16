@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from ..schemas.context import DialogueContext, SessionInfo
 from ..memory import BaseMemoryStore
 from ..storage.entity_buffer import EntityBuffer
+from ..memory.p2_memory_service import P2MemoryService
 
 
 class ContextAssembler:
@@ -14,9 +15,15 @@ class ContextAssembler:
     # 最近对话条数
     MAX_RECENT_UTTERANCES = 5
     
-    def __init__(self, memory_store: BaseMemoryStore, entity_buffer: Optional[EntityBuffer] = None):
+    def __init__(
+        self, 
+        memory_store: BaseMemoryStore, 
+        entity_buffer: Optional[EntityBuffer] = None,
+        p2_memory_service: Optional[P2MemoryService] = None
+    ):
         self.memory_store = memory_store
         self.entity_buffer = entity_buffer
+        self.p2_memory_service = p2_memory_service or P2MemoryService(enable_vector=True)
     
     async def assemble(
         self,
@@ -121,10 +128,13 @@ class ContextAssembler:
         session_id: str,
         driver_id: Optional[str]
     ) -> Dict[str, Any]:
-        """获取记忆切片（用户偏好等）"""
+        """获取记忆切片（用户偏好等）
+        
+        P2增强：注入向量召回的TopN记忆（≤5条，≤300 token）
+        """
         memory_slice = {}
         
-        # 从driver偏好加载
+        # P0: 从driver偏好加载（保留兼容）
         if driver_id:
             prefs = await self.memory_store.get_json(f"user_prefs:{driver_id}")
             if prefs:
@@ -139,5 +149,37 @@ class ContextAssembler:
             music_prefs = await self.memory_store.get_json(f"music_prefs:{driver_id}")
             if music_prefs:
                 memory_slice["music_prefs"] = music_prefs
+            
+            # P2: 向量召回相关记忆（异步，失败不阻塞）
+            try:
+                if self.p2_memory_service:
+                    # 获取当前utterance（用于query）
+                    recent = await self._get_recent_utterances(session_id)
+                    query = recent[-1] if recent else ""
+                    
+                    if query:
+                        # 组合user_id（accountId:driverId格式）
+                        user_id = f"account_default:{driver_id}"
+                        
+                        # 召回TopN记忆
+                        p2_memories = self.p2_memory_service.search_memories(
+                            user_id=user_id,
+                            query=query,
+                            top_k=5,
+                            token_budget=300
+                        )
+                        
+                        if p2_memories:
+                            memory_slice["p2_relevant_memories"] = [
+                                {
+                                    "content": m["content"],
+                                    "category": m["category"]
+                                }
+                                for m in p2_memories
+                            ]
+                            print(f"[ContextAssembler] Injected {len(p2_memories)} P2 memories")
+            except Exception as e:
+                # 失败降级：不注入，不阻塞主对话
+                print(f"[ContextAssembler] P2 memory recall failed (soft): {e}")
         
         return memory_slice

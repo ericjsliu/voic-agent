@@ -18,7 +18,20 @@ MOCK_POI_DATABASE = {
 
 
 class NavigationAdapter(BaseDomainAdapter):
-    """导航适配器"""
+    """导航适配器
+    
+    P2增强：
+    - 从P2 memory读取家/公司地址（content格式："家地址：xxx"）
+    - 当前resolve时用地址文本geocode为POI
+    - 永不回写坐标到memory
+    """
+    
+    def __init__(self, p2_memory_service=None):
+        """
+        Args:
+            p2_memory_service: P2记忆服务（可选，用于解析家/公司）
+        """
+        self.p2_memory_service = p2_memory_service
     
     async def validate(self, step: Step, shadow_state: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """验证导航步骤"""
@@ -38,8 +51,54 @@ class NavigationAdapter(BaseDomainAdapter):
         
         return True, None
     
-    async def resolve_poi(self, poi_name: str) -> Optional[Dict[str, Any]]:
-        """解析POI名称到坐标（使用mock地图）"""
+    async def resolve_poi(
+        self, 
+        poi_name: str, 
+        user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """解析POI名称到坐标
+        
+        P2增强：
+        - 如果poi_name是"家"或"公司"，先从P2 memory读取地址
+        - 用地址文本geocode（这里用mock）
+        - 失败时返回None（触发追问）
+        
+        Args:
+            poi_name: POI名称
+            user_id: 用户ID（用于查询memory）
+        
+        Returns:
+            POI数据（含坐标）或None
+        """
+        # P2: 尝试从记忆解析家/公司
+        if poi_name in ["家", "回家", "家里"] and user_id and self.p2_memory_service:
+            addresses = self.p2_memory_service.parse_home_company_address(user_id)
+            home_addr = addresses.get('home')
+            
+            if home_addr:
+                print(f"[NavAdapter] Resolved home from P2 memory: {home_addr}")
+                # Geocode地址（mock实现：用内置家坐标）
+                poi_data = await self._geocode_address(home_addr, poi_name="家")
+                if poi_data:
+                    return poi_data
+                else:
+                    # Geocode失败，返回None触发追问
+                    print(f"[NavAdapter] Geocode failed for home: {home_addr}")
+                    return None
+        
+        if poi_name in ["公司", "去公司", "单位"] and user_id and self.p2_memory_service:
+            addresses = self.p2_memory_service.parse_home_company_address(user_id)
+            company_addr = addresses.get('company')
+            
+            if company_addr:
+                print(f"[NavAdapter] Resolved company from P2 memory: {company_addr}")
+                poi_data = await self._geocode_address(company_addr, poi_name="公司")
+                if poi_data:
+                    return poi_data
+                else:
+                    print(f"[NavAdapter] Geocode failed for company: {company_addr}")
+                    return None
+        
         # 在真实系统中，这里会调用地图服务API
         if poi_name in MOCK_POI_DATABASE:
             poi_data = MOCK_POI_DATABASE[poi_name]
@@ -61,6 +120,38 @@ class NavigationAdapter(BaseDomainAdapter):
                     "address": poi_data.get("address"),
                 }
         
+        return None
+    
+    async def _geocode_address(
+        self, 
+        address: str, 
+        poi_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """地址文本转坐标（mock实现）
+        
+        实际应调用地图服务API（如高德、百度地图）
+        
+        Args:
+            address: 地址文本
+            poi_name: POI名称（用于fallback）
+        
+        Returns:
+            POI数据或None
+        """
+        # Mock实现：如果地址包含关键词，返回mock坐标
+        # 实际应调用 geocoding API
+        
+        # 这里简化：直接用MOCK_POI_DATABASE的fallback
+        if poi_name in MOCK_POI_DATABASE:
+            poi_data = MOCK_POI_DATABASE[poi_name]
+            return {
+                "poi_name": poi_name,
+                "latitude": poi_data["lat"],
+                "longitude": poi_data["lon"],
+                "address": address,  # 使用真实地址文本
+            }
+        
+        # 无法geocode
         return None
     
     async def execute(self, step: Step, context: Dict[str, Any]) -> Dict[str, Any]:
