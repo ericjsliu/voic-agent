@@ -37,10 +37,13 @@ class TestStage1InjectMemoryToPlanner:
         planner.llm_client = mock_llm_client
         
         # 创建带记忆的context
+        from datetime import datetime
         session_info = SessionInfo(
             session_id="test_session",
             driver_id="driver1",
-            vehicle_id="vehicle1"
+            vehicle_id="vehicle1",
+            created_at=datetime.utcnow().isoformat() + "Z",
+            last_active=datetime.utcnow().isoformat() + "Z"
         )
         
         context = DialogueContext(
@@ -103,10 +106,13 @@ class TestStage1InjectMemoryToPlanner:
             for i in range(10)
         ]
         
+        from datetime import datetime
         session_info = SessionInfo(
             session_id="test_session",
             driver_id="driver1",
-            vehicle_id="vehicle1"
+            vehicle_id="vehicle1",
+            created_at=datetime.utcnow().isoformat() + "Z",
+            last_active=datetime.utcnow().isoformat() + "Z"
         )
         
         context = DialogueContext(
@@ -153,10 +159,13 @@ class TestStage1InjectMemoryToPlanner:
             for i in range(10)
         ]
         
+        from datetime import datetime
         session_info = SessionInfo(
             session_id="test_session",
             driver_id="driver1",
-            vehicle_id="vehicle1"
+            vehicle_id="vehicle1",
+            created_at=datetime.utcnow().isoformat() + "Z",
+            last_active=datetime.utcnow().isoformat() + "Z"
         )
         
         context = DialogueContext(
