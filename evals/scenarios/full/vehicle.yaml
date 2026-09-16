@@ -1,0 +1,279 @@
+version: 1
+suite: full_vehicle
+metric_scope: cloud
+description: 测试台 vehicle 域芯片全量场景（PRD v1.15 云端五类指标）
+cases:
+- id: UI-VEH-01
+  name: 打开车窗
+  utterance: 打开车窗
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: window_open
+    level: L1
+    mqtt_exec_frames: 1
+    note: cloud_dispatch_ok; vehicle_ack is联调参考
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-02
+  name: 关闭车窗
+  utterance: 关闭车窗
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: window_close
+    level: L1
+    mqtt_exec_frames: 1
+    note: cloud_dispatch_ok; vehicle_ack is联调参考
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-03
+  name: 打开天窗
+  utterance: 打开天窗
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: sunroof_open
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-04
+  name: 关闭天窗
+  utterance: 关闭天窗
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: sunroof_close
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-05
+  name: 锁车
+  utterance: 锁车
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: door_lock
+    level: L2
+    has_l2: true
+    mqtt_before_confirm: 0
+    mqtt_exec_frames: 0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-06
+  name: 解锁车门
+  utterance: 解锁车门
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: door_unlock
+    level: L2
+    has_l2: true
+    mqtt_before_confirm: 0
+    mqtt_exec_frames: 0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-07
+  name: 打开后备箱
+  utterance: 打开后备箱
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: trunk_open
+    level: L1
+    mqtt_exec_frames: 1
+    note: cloud_dispatch_ok; vehicle_ack is联调参考
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-08
+  name: 打开前备箱
+  utterance: 打开前备箱
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: frunk_open
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-09
+  name: 打开空调
+  utterance: 打开空调
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: ac_power
+    level: L0
+    mqtt_exec_frames: 0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-10
+  name: 设置空调温度25度
+  utterance: 设置空调温度25度
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: set_ac_temp
+    level: L0
+    mqtt_exec_frames: 0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-11
+  name: 前挡风除霜
+  utterance: 前挡风除霜
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: defrost_front
+    level: L0
+    mqtt_exec_frames: 0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-12
+  name: 座椅加热2档
+  utterance: 座椅加热2档
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: seat_heat
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-13
+  name: 座椅通风
+  utterance: 座椅通风
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: seat_vent
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-14
+  name: 方向盘加热
+  utterance: 方向盘加热
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: steering_wheel_heat
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-15
+  name: 打开氛围灯
+  utterance: 打开氛围灯
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: ambient_light
+    level: L0
+    mqtt_exec_frames: 0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-16
+  name: 打开雾灯
+  utterance: 打开雾灯
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: fog_light
+    level: L1
+    mqtt_exec_frames: 1
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-17
+  name: 打开近光灯
+  utterance: 打开近光灯
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: low_beam
+    level: L1
+    mqtt_exec_frames: 1
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-18
+  name: 后视镜折叠
+  utterance: 后视镜折叠
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: mirror_fold
+    level: L1
+    mqtt_exec_frames: 1
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-19
+  name: 雨刮速度3档
+  utterance: 雨刮速度3档
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: vehicle
+    action: wiper_speed
+    level: L1
+    mqtt_exec_frames: 1
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-VEH-L1-REJECT
+  name: 打开车窗-非P（门控参考）
+  utterance: 打开车窗
+  vehicle_model: model_a
+  source: safety_companion
+  telemetry:
+    gear: D
+    speed_kmh: 30
+  expect:
+    domain: vehicle
+    action: window_open
+    level: L1
+    note: 云端可下发；端侧 rejected 为联调/安全断言，不进云端成功分母
+    mqtt_exec_frames: 1

@@ -1,0 +1,75 @@
+version: 1
+suite: full_knowledge
+metric_scope: cloud
+description: 测试台 knowledge 域芯片全量场景（PRD v1.15 云端五类指标）
+cases:
+- id: UI-KNO-01
+  name: 如何使用空调
+  utterance: 如何使用空调
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: knowledge
+    action: query_manual
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-KNO-02
+  name: 怎么调整座椅
+  utterance: 怎么调整座椅
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: knowledge
+    action: query_manual
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-KNO-03
+  name: 胎压监测在哪里
+  utterance: 胎压监测在哪里
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: knowledge
+    action: query_manual
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-KNO-04
+  name: 如何设置蓝牙
+  utterance: 如何设置蓝牙
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: knowledge
+    action: query_manual
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-KNO-X1
+  name: 关闭发动机后大约5小时从车底发出噪音并持续几分钟，是否表示故障？
+  utterance: 关闭发动机后大约5小时从车底发出噪音并持续几分钟，是否表示故障？
+  vehicle_model: model_a
+  source: ui_extra
+  expect:
+    domain: knowledge
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+    action: query_manual
+  telemetry:
+    gear: P
+    speed_kmh: 0

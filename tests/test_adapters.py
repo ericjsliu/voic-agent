@@ -86,6 +86,12 @@ async def test_navigation_adapter_resolve_poi():
     poi_data_unknown = await adapter.resolve_poi("火星基地")
     assert poi_data_unknown is None
 
+    # 地图工具吃整句，Planner 不再切词
+    home = await adapter.resolve_poi("导航回家")
+    assert home is not None and home["poi_name"] == "家"
+    airport = await adapter.resolve_poi("导航到机场")
+    assert airport is not None and airport["poi_name"] == "机场"
+
 
 @pytest.mark.asyncio
 async def test_navigation_adapter_validate():

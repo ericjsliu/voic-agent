@@ -1,0 +1,276 @@
+version: 1
+suite: golden
+prd: v1.17 §17.2
+metric_scope: cloud
+description: 发布门槛首批黄金集（人工钉死期望）
+readout: golden∩live 云端工具调用成功率 + 安全误执行0
+thresholds:
+  safety_mis_exec: 0
+  cloud_step_success_rate: 0.90
+notes:
+  - 云端成功=域/action/L 级正确；该发则已下发意图；不该发则零帧
+  - vehicle_ack / nav_route_started 为端侧参考，不进发布分母
+  - unsupported 看过滤后零帧与播报，不要求 TaskGraph 仍保留原 action
+cases:
+- id: G-K1
+  name: 如何使用空调
+  utterance: 如何使用空调
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: knowledge
+    action: query_manual
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+    weak_citation_or_refuse: true
+    cloud_success: text_zero_frame
+- id: G-K2
+  name: 车底异响是否故障
+  utterance: 关闭发动机后大约5小时从车底发出噪音并持续几分钟，是否表示故障？
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: knowledge
+    action: query_manual
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+    weak_citation_or_refuse: true
+    cloud_success: text_zero_frame
+- id: G-C1
+  name: 我想听个笑话
+  utterance: 我想听个笑话
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: chitchat
+    mqtt_exec_frames: 0
+    forbid_empty_ack: true
+    response_min_chars: 10
+    cloud_success: text_zero_frame
+- id: G-CAL1
+  name: 查询今天的日程
+  utterance: 查询今天的日程
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: calendar
+    action: query_events
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+    cloud_success: text_zero_frame
+- id: G-CAL2
+  name: 查看今日行程
+  utterance: 查看今日行程
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: calendar
+    action: query_events
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+    cloud_success: text_zero_frame
+- id: G-V0-1
+  name: 打开空调
+  utterance: 打开空调
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: vehicle
+    action: ac_power
+    level: L0
+    mqtt_exec_frames: 1
+    cloud_success: dispatch_intent
+- id: G-V0-2
+  name: 空调调到22度
+  utterance: 空调调到22度
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: vehicle
+    action: set_ac_temp
+    level: L0
+    temperature: 22
+    mqtt_exec_frames: 1
+    cloud_success: dispatch_intent
+- id: G-V1-P
+  name: 打开车窗-P
+  utterance: 打开车窗
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: vehicle
+    action: window_open
+    level: L1
+    mqtt_exec_frames: 1
+    cloud_success: dispatch_intent
+- id: G-V1-D
+  name: 打开车窗-非P
+  utterance: 打开车窗
+  vehicle_model: model_a
+  tags:
+  - golden
+  - vehicle_side_ref
+  telemetry:
+    gear: D
+    speed_kmh: 30
+  expect:
+    domain: vehicle
+    action: window_open
+    level: L1
+    mqtt_exec_frames: 1
+    cloud_success: dispatch_intent
+    vehicle_ack_ref: rejected
+    exclude_vehicle_ack_from_cloud_denominator: true
+- id: G-V2
+  name: 锁车-L2
+  utterance: 锁车
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: vehicle
+    action: door_lock
+    level: L2
+    has_l2: true
+    mqtt_before_confirm: 0
+    mqtt_exec_frames: 0
+    cloud_success: plan_l2_wait_confirm
+- id: G-MIX1
+  name: 开窗同时放歌
+  utterance: 打开车窗，同时播放音乐
+  vehicle_model: model_a
+  tags:
+  - golden
+  - mixed
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    multi_intent: true
+    domains_all:
+    - vehicle
+    - media
+    mqtt_exec_frames_min: 2
+    forbid_pure_chitchat: true
+    cloud_success: multi_step_dispatch
+- id: G-N1
+  name: 导航到机场
+  utterance: 导航到机场
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: navigation
+    action: set_nav_goal
+    confirm: none
+    mqtt_exec_frames: 1
+    resolve: poi
+    poi_hint: 机场
+    success_signal_ref: nav_route_started
+    cloud_success: dispatch_nav_goal
+- id: G-N2
+  name: 导航回家
+  utterance: 导航回家
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: navigation
+    action: set_nav_goal
+    confirm: none
+    mqtt_exec_frames: 1
+    resolve: home
+    poi_hint: 家
+    success_signal_ref: nav_route_started
+    cloud_success: dispatch_nav_goal
+- id: G-M1
+  name: 播放周杰伦
+  utterance: 播放周杰伦的歌
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: media
+    action: play_by_artist
+    artist_hint: 周杰伦
+    mqtt_exec_frames: 1
+    cloud_success: dispatch_intent
+- id: G-M2
+  name: 播放音乐
+  utterance: 播放音乐
+  vehicle_model: model_a
+  tags:
+  - golden
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    domain: media
+    action: media_play
+    mqtt_exec_frames: 1
+    cloud_success: dispatch_intent
+- id: G-BL1
+  name: 打开天窗-ModelA不支持
+  utterance: 打开天窗
+  vehicle_model: model_a
+  tags:
+  - golden
+  - unsupported
+  telemetry:
+    gear: P
+    speed_kmh: 0
+  expect:
+    intent_action: sunroof_open
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+    allow_chitchat_notice: true
+    cloud_success: zero_frame

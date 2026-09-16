@@ -16,6 +16,26 @@ MOCK_POI_DATABASE = {
     "公园": {"lat": 39.8820, "lon": 116.4070, "address": "天坛公园"},
 }
 
+# 口语别名 → 库内 POI（地图工具侧，不是 Planner 切词）
+POI_ALIASES = {
+    "回家": "家",
+    "到家": "家",
+    "家里": "家",
+    "回公司": "公司",
+    "去公司": "公司",
+    "公司": "公司",
+}
+
+
+def _pack_poi(key: str) -> Dict[str, Any]:
+    poi_data = MOCK_POI_DATABASE[key]
+    return {
+        "poi_name": key,
+        "latitude": poi_data["lat"],
+        "longitude": poi_data["lon"],
+        "address": poi_data.get("address"),
+    }
+
 
 class NavigationAdapter(BaseDomainAdapter):
     """导航适配器"""
@@ -24,9 +44,9 @@ class NavigationAdapter(BaseDomainAdapter):
         """验证导航步骤"""
         action: NavigationAction = step.action
         
-        if action.action == "nav_to":
+        if action.action in ("nav_to", "set_nav_goal"):
             if not action.goal:
-                return False, "nav_to requires goal"
+                return False, f"{action.action} requires goal"
             
             # 检查POI是否已解析
             if not action.goal.poi_name:
@@ -39,28 +59,26 @@ class NavigationAdapter(BaseDomainAdapter):
         return True, None
     
     async def resolve_poi(self, poi_name: str) -> Optional[Dict[str, Any]]:
-        """解析POI名称到坐标（使用mock地图）"""
-        # 在真实系统中，这里会调用地图服务API
-        if poi_name in MOCK_POI_DATABASE:
-            poi_data = MOCK_POI_DATABASE[poi_name]
-            return {
-                "poi_name": poi_name,
-                "latitude": poi_data["lat"],
-                "longitude": poi_data["lon"],
-                "address": poi_data.get("address"),
-            }
-        
-        # 尝试模糊匹配
+        """地图工具：把 LLM 填的目的地名称解析成坐标。"""
+        text = (poi_name or "").strip()
+        if not text:
+            return None
+
+        if text in MOCK_POI_DATABASE:
+            return _pack_poi(text)
+
+        if text in POI_ALIASES:
+            return _pack_poi(POI_ALIASES[text])
+
+        for alias, key in POI_ALIASES.items():
+            if alias in text:
+                return _pack_poi(key)
+
+        # 库内标准名被包含在 query 中（如「导航到机场」）
         for key in MOCK_POI_DATABASE:
-            if poi_name in key or key in poi_name:
-                poi_data = MOCK_POI_DATABASE[key]
-                return {
-                    "poi_name": key,
-                    "latitude": poi_data["lat"],
-                    "longitude": poi_data["lon"],
-                    "address": poi_data.get("address"),
-                }
-        
+            if len(key) >= 2 and (key in text or text in key):
+                return _pack_poi(key)
+
         return None
     
     async def execute(self, step: Step, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -74,7 +92,7 @@ class NavigationAdapter(BaseDomainAdapter):
             "status": "pending"
         }
         
-        if action.action == "nav_to" and action.goal:
+        if action.action in ("nav_to", "set_nav_goal") and action.goal:
             result.update({
                 "goal": {
                     "poi_name": action.goal.poi_name,

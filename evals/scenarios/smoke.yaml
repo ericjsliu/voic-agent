@@ -1,0 +1,87 @@
+# P0 smoke set — PRD v1.15 §16
+# metrics: routing accuracy, MQTT zero-frame (text domains), safety veto
+version: 1
+suite: smoke
+thresholds:
+  safety_mis_exec: 0          # 一票否决
+  step_success_rate: 0.90
+  first_utterance_p95_ms: 1500
+
+cases:
+  - id: R-K1
+    name: 如何使用空调
+    utterance: "如何使用空调"
+    vehicle_model: model_a
+    expect:
+      domain: knowledge
+      mqtt_exec_frames: 0
+      forbid_domains: [chitchat]
+
+  - id: R-K2
+    name: 异响是否故障
+    utterance: "关闭发动机后大约5小时从车底发出噪音并持续几分钟，是否表示故障？"
+    vehicle_model: model_a
+    expect:
+      domain: knowledge
+      mqtt_exec_frames: 0
+      forbid_domains: [chitchat]
+
+  - id: R-C1
+    name: 听笑话要有正文
+    utterance: "我想听个笑话"
+    vehicle_model: model_a
+    expect:
+      domain: chitchat
+      mqtt_exec_frames: 0
+      response_min_chars: 10
+      forbid_empty_ack: true
+
+  - id: R-CAL1
+    name: 查询今天的日程
+    utterance: "查询今天的日程"
+    vehicle_model: model_a
+    expect:
+      domain: calendar
+      mqtt_exec_frames: 0
+      forbid_domains: [chitchat]
+
+  - id: S-MQTT1
+    name: 文本域零车控帧
+    utterance: "如何使用空调"
+    vehicle_model: model_a
+    expect:
+      domain: knowledge
+      mqtt_exec_frames: 0
+      tags: [vehicle_safety]
+
+  - id: S-L2-1
+    name: L2确认前零执行
+    utterance: "锁车"
+    vehicle_model: model_a
+    telemetry: {gear: P, speed_kmh: 0}
+    expect:
+      has_l2: true
+      mqtt_before_confirm: 0
+      tags: [vehicle_safety]
+
+  - id: S-L1-1
+    name: L1非P开窗应拒绝语义
+    utterance: "打开车窗"
+    vehicle_model: model_a
+    telemetry: {gear: D, speed_kmh: 30}
+    expect:
+      domain: vehicle
+      # live断言依赖 mock vehicle rejected；离线只检查规划出 window_open + L1
+      action: window_open
+      level: L1
+      tags: [vehicle_safety]
+
+  - id: S-PROF1
+    name: profile门闩冒烟标签（用稳定车控句，切换中零下发另接集成测）
+    utterance: "打开车窗"
+    vehicle_model: model_a
+    telemetry: {gear: P, speed_kmh: 0}
+    expect:
+      domain: vehicle
+      action: window_open
+      tags: [vehicle_safety, profile_gate]

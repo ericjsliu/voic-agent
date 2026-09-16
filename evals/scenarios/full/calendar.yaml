@@ -1,0 +1,75 @@
+version: 1
+suite: full_calendar
+metric_scope: cloud
+description: 测试台 calendar 域芯片全量场景（PRD v1.15 云端五类指标）
+cases:
+- id: UI-CAL-01
+  name: 查询今天的日程
+  utterance: 查询今天的日程
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: calendar
+    action: query_events
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CAL-02
+  name: 下一个会议是什么
+  utterance: 下一个会议是什么
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: calendar
+    action: query_events
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CAL-03
+  name: 创建明天下午3点的会议
+  utterance: 创建明天下午3点的会议
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: calendar
+    action: create_event
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CAL-04
+  name: 取消今天的会议
+  utterance: 取消今天的会议
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: calendar
+    action: cancel_event
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CAL-X2
+  name: 查看今日行程
+  utterance: 查看今日行程
+  vehicle_model: model_a
+  source: ui_extra
+  expect:
+    domain: calendar
+    mqtt_exec_frames: 0
+    forbid_domains:
+    - chitchat
+    action: query_events
+  telemetry:
+    gear: P
+    speed_kmh: 0

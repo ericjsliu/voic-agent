@@ -1,0 +1,70 @@
+version: 1
+suite: full_chitchat
+metric_scope: cloud
+description: 测试台 chitchat 域芯片全量场景（PRD v1.15 云端五类指标）
+cases:
+- id: UI-CHI-01
+  name: 今天天气真好
+  utterance: 今天天气真好
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: chitchat
+    mqtt_exec_frames: 0
+    forbid_empty_ack: true
+    response_min_chars: 8
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CHI-02
+  name: 你好
+  utterance: 你好
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: chitchat
+    mqtt_exec_frames: 0
+    forbid_empty_ack: true
+    response_min_chars: 8
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CHI-03
+  name: 谢谢
+  utterance: 谢谢
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: chitchat
+    mqtt_exec_frames: 0
+    forbid_empty_ack: true
+    response_min_chars: 8
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CHI-04
+  name: 我想听个笑话
+  utterance: 我想听个笑话
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: chitchat
+    mqtt_exec_frames: 0
+    forbid_empty_ack: true
+    response_min_chars: 8
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CHI-07
+  name: 锁车并打开氛围灯
+  utterance: 锁车并打开氛围灯
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: chitchat
+    mqtt_exec_frames: 0
+    forbid_empty_ack: true
+    response_min_chars: 8
+  telemetry:
+    gear: P
+    speed_kmh: 0

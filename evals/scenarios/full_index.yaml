@@ -1,0 +1,14 @@
+version: 1
+suite: full_ui
+includes:
+- full/vehicle.yaml
+- full/navigation.yaml
+- full/media.yaml
+- full/calendar.yaml
+- full/knowledge.yaml
+- full/chitchat.yaml
+case_count: 58
+notes:
+- 冒烟仍用 scenarios/smoke.yaml 进 CI
+- 全量 nightly/手动 live；expect.todo 需对照 Planner action 名校准
+- 云端成功=发对/不误发；mqtt_exec_frames=0 表示零帧

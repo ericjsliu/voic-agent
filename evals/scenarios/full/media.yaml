@@ -1,0 +1,176 @@
+version: 1
+suite: full_media
+metric_scope: cloud
+description: 测试台 media 域芯片全量场景（PRD v1.15 云端五类指标）
+cases:
+- id: UI-MED-01
+  name: 播放音乐
+  utterance: 播放音乐
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: media_play
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-02
+  name: 暂停播放
+  utterance: 暂停播放
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: media_pause
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-03
+  name: 下一首
+  utterance: 下一首
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: media_next
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-04
+  name: 上一首
+  utterance: 上一首
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: media_prev
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-05
+  name: 音量增大
+  utterance: 音量增大
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: volume_up
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-06
+  name: 音量减小
+  utterance: 音量减小
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: volume_down
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-07
+  name: 静音
+  utterance: 静音
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: mute
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-08
+  name: 播放周杰伦的歌
+  utterance: 播放周杰伦的歌
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: play_by_artist
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-09
+  name: 播放稻香
+  utterance: 播放稻香
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: play_by_title
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-10
+  name: 播放我的收藏
+  utterance: 播放我的收藏
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: play_favorites
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-11
+  name: 播放电台
+  utterance: 播放电台
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: play_radio
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-12
+  name: 随机播放
+  utterance: 随机播放
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: play_random
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-MED-13
+  name: 切换蓝牙音源
+  utterance: 切换蓝牙音源
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: media
+    action: switch_source
+    mqtt_exec_frames: 1
+    level: L0
+  telemetry:
+    gear: P
+    speed_kmh: 0

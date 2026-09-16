@@ -53,3 +53,5 @@ Thumbs.db
 
 # Frontend
 web/node_modules/
+reports
+evals/reports/

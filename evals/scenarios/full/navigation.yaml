@@ -1,0 +1,117 @@
+version: 1
+suite: full_navigation
+metric_scope: cloud
+description: 测试台 navigation 域芯片全量场景（PRD v1.15 云端五类指标）
+cases:
+- id: UI-NAV-01
+  name: 导航到机场
+  utterance: 导航到机场
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: set_nav_goal
+    mqtt_exec_frames: 1
+    success_signal: nav_route_started
+    confirm: none
+    resolve: poi_or_default
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-02
+  name: 导航到公司
+  utterance: 导航到公司
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: set_nav_goal
+    mqtt_exec_frames: 1
+    success_signal: nav_route_started
+    confirm: none
+    resolve: poi_or_default
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-03
+  name: 导航回家
+  utterance: 导航回家
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: set_nav_goal
+    mqtt_exec_frames: 1
+    success_signal: nav_route_started
+    confirm: none
+    resolve: poi_or_default
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-04
+  name: 取消导航
+  utterance: 取消导航
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: cancel_nav
+    mqtt_exec_frames: 1
+    confirm: none
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-05
+  name: 添加途经点星巴克
+  utterance: 添加途经点星巴克
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: add_via
+    mqtt_exec_frames: 0
+    expect_outcome: unsupported_or_blacklist
+    forbid_success_dispatch: true
+    confirm: none
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-06
+  name: 查询还有多久到达
+  utterance: 查询还有多久到达
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: query_eta
+    mqtt_exec_frames: 1
+    confirm: none
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-07
+  name: 查询剩余距离
+  utterance: 查询剩余距离
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: query_remaining_distance
+    mqtt_exec_frames: 1
+    confirm: none
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-NAV-08
+  name: 下一步怎么走
+  utterance: 下一步怎么走
+  vehicle_model: model_a
+  source: ui_chip
+  expect:
+    domain: navigation
+    action: query_next_maneuver
+    mqtt_exec_frames: 1
+    confirm: none
+  telemetry:
+    gear: P
+    speed_kmh: 0

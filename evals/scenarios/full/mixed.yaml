@@ -1,0 +1,56 @@
+version: 1
+suite: full_mixed
+metric_scope: cloud
+description: 测试台混合意图句（非纯闲聊）
+cases:
+- id: UI-CHI-05
+  name: 打开车窗，同时播放音乐
+  utterance: 打开车窗，同时播放音乐
+  vehicle_model: model_a
+  source: ui_mixed
+  expect:
+    domains_any:
+    - vehicle
+    - media
+    multi_intent: true
+    mqtt_exec_frames_min: 1
+    forbid_domains_only:
+    - chitchat
+    note: 混合意图：允许车控/媒体帧，禁止整句掉纯闲聊
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CHI-06
+  name: 导航到机场，播放轻音乐
+  utterance: 导航到机场，播放轻音乐
+  vehicle_model: model_a
+  source: ui_mixed
+  expect:
+    domains_any:
+    - vehicle
+    - media
+    multi_intent: true
+    mqtt_exec_frames_min: 1
+    forbid_domains_only:
+    - chitchat
+    note: 混合意图：允许车控/媒体帧，禁止整句掉纯闲聊
+  telemetry:
+    gear: P
+    speed_kmh: 0
+- id: UI-CHI-08
+  name: 打开空调25度，播放收藏的歌
+  utterance: 打开空调25度，播放收藏的歌
+  vehicle_model: model_a
+  source: ui_mixed
+  expect:
+    domains_any:
+    - vehicle
+    - media
+    multi_intent: true
+    mqtt_exec_frames_min: 1
+    forbid_domains_only:
+    - chitchat
+    note: 混合意图：允许车控/媒体帧，禁止整句掉纯闲聊
+  telemetry:
+    gear: P
+    speed_kmh: 0

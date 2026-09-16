@@ -1,0 +1,27 @@
+name: evals-smoke
+
+on:
+  push:
+    branches: [ main, "cursor/**" ]
+  pull_request:
+
+jobs:
+  smoke-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install pyyaml
+      - name: Offline smoke
+        run: |
+          python -m evals.runner --mode offline
+          pytest evals/test_smoke_offline.py -q
+      - name: Offline golden
+        run: |
+          python -m evals.runner --suite golden --mode offline
+          pytest evals/test_golden_offline.py -q
