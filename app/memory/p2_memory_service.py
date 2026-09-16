@@ -10,7 +10,7 @@
 
 模型路由（PRD v1.24 + Model Lock）：
 - memory_extract: MEMORY_EXTRACT_MODEL (default: qwen-turbo) - 被动评分 + 事实提取 + 10类分类
-- memory_embed: MEMORY_EMBED_MODEL (default: text-embedding-v3) - 向量embedding
+- memory_embed: MEMORY_EMBED_MODEL (default: text-embedding-v3, 1024维) - 向量embedding
 - 全部使用 DashScope/Qwen，通过 OpenAI-compatible API
 """
 
@@ -43,13 +43,15 @@ MEMORY_CATEGORIES = {
 
 
 # 硬黑名单模式（PII等）
+# 注意：不使用 \b 因为中文前面的 \b 不生效
 BLACKLIST_PATTERNS = [
-    # 手机号
-    (r'\b1[3-9]\d{9}\b', 'phone'),
-    # 身份证号（简化版）
-    (r'\b\d{17}[\dXx]\b', 'id_card'),
-    # 银行卡号（简化版）
-    (r'\b\d{16,19}\b', 'bank_card'),
+    # 手机号（中国大陆：1[3-9]开头的11位数字）
+    (r'(?:^|[^\d])1[3-9]\d{9}(?:[^\d]|$)', 'phone'),
+    # 身份证号（15位或18位，18位最后可能是X）
+    (r'(?:^|[^\d])\d{15}(?:[^\d]|$)', 'id_card'),
+    (r'(?:^|[^\d])\d{17}[\dXx](?:[^\d]|$)', 'id_card'),
+    # 银行卡号（16-19位数字）
+    (r'(?:^|[^\d])\d{16,19}(?:[^\d]|$)', 'bank_card'),
     # 密码/token关键词
     (r'(?:密码|password|token|pwd|pass)[:：]?\s*[\w\d]{4,}', 'password'),
     # 病历关键词
@@ -692,20 +694,24 @@ class P2MemoryService:
         return len(set1 & set2) / len(set1 | set2)
     
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """生成embedding向量（1536维，对齐DashScope text-embedding-v3）
+        """生成embedding向量（1024维，用户锁定text-embedding-v3）
         
         使用 Qwen Embedding API
         """
         if not self.embedding_client:
-            print(f"[P2Memory] Embedding client not initialized")
+            print(f"[P2Memory] Embedding client not initialized, skipping embedding")
             return None
         
         try:
             embedding = self.embedding_client.embed(text, timeout=5.0)
-            if embedding and len(embedding) == 1536:
+            if embedding and len(embedding) > 0:
+                expected_dim = int(os.getenv('EMBEDDING_DIMENSIONS', '1024'))
+                if len(embedding) != expected_dim:
+                    print(f"[P2Memory] ERROR: Invalid embedding dimension: {len(embedding)}, expected {expected_dim}")
+                    return None  # 绝不写入错误维度的向量
                 return embedding
             else:
-                print(f"[P2Memory] Invalid embedding dimension: {len(embedding) if embedding else 0}")
+                print(f"[P2Memory] Invalid embedding dimension: {len(embedding) if embedding else 0}, skipping")
                 return None
         
         except Exception as e:

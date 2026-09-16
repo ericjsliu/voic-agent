@@ -14,11 +14,10 @@ from typing import Optional, Dict, Any
 class ActiveMemoryHandler:
     """主动记忆指令识别与处理"""
     
-    # 主动记忆触发词
-    ACTIVE_TRIGGERS = [
-        "帮我记", "记住", "记下", "保存", "记一下", 
-        "帮忙记", "请记住", "给我记", "存一下"
-    ]
+    # 主动记忆触发词（按长度排序，最长的先匹配）
+    ACTIVE_TRIGGERS = sorted([
+        "帮我记住", "请记住", "帮忙记", "给我记", "帮我记", "记住", "记下", "保存", "记一下", "存一下"
+    ], key=len, reverse=True)
     
     @classmethod
     def detect_active_intent(cls, utterance: str) -> Optional[str]:

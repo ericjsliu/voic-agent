@@ -58,7 +58,7 @@ class ManualMetadata(Base):
     page = Column(Integer)
     title = Column(Text)
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(1536))  # OpenAI embedding size
+    embedding = Column(Vector(1024))  # 用户锁定：text-embedding-v3 @ 1024维
     additional_metadata = Column(JSONB)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
@@ -173,7 +173,7 @@ class LongTermMemoryP2(Base):
     - 家/公司地址存content，无单独address/poi字段
     - 驾驶员隔离：user_id编码为accountId:driverId
     
-    向量维度：1536（对齐DashScope text-embedding-v3，与manual_metadata一致）
+    向量维度：1024（用户锁定text-embedding-v3 @ 1024维）
     """
     __tablename__ = "long_term_memory_p2"
     
@@ -182,7 +182,7 @@ class LongTermMemoryP2(Base):
     user_id = Column(String(255), nullable=False, index=True)  # 账号维度分片键（accountId:driverId）
     content = Column(Text, nullable=False)  # 归一化记忆正文（家/公司以"家地址：xxx"格式存储）
     category = Column(String(50), nullable=False, index=True)  # 10类之一
-    embedding = Column(Vector(1536), nullable=True)  # 语义向量（1536维，对齐DashScope text-embedding-v3）
+    embedding = Column(Vector(1024), nullable=True)  # 语义向量（1024维，用户锁定text-embedding-v3）
     weight = Column(Float, default=1.0, nullable=False)  # 热度权重
     version_id = Column(Integer, default=1, nullable=False)  # 冲突版本ID
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

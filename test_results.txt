@@ -1,0 +1,218 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.3, pluggy-1.6.0
+rootdir: /workspace
+configfile: pytest.ini
+plugins: asyncio-0.21.1, anyio-3.7.1, cov-4.1.0
+asyncio: mode=Mode.AUTO
+collected 29 items
+
+tests/test_p2_memory.py .......................ssssFF                    [100%]
+
+=================================== FAILURES ===================================
+_____________ TestNavigationIntegration.test_nav_home_from_memory ______________
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:452: in connect
+    return _ConnectionFairy._checkout(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1269: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:716: in checkout
+    rec = pool._do_get()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:284: in _do_get
+    return self._create_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:393: in _create_connection
+    return _ConnectionRecord(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:678: in __init__
+    self.__connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:902: in __connect
+    with util.safe_reraise():
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:898: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/create.py:637: in connect
+    return dialect.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/default.py:616: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/psycopg2/__init__.py:122: in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+E   psycopg2.OperationalError: could not translate host name "postgres" to address: Name or service not known
+
+The above exception was the direct cause of the following exception:
+tests/test_p2_memory.py:434: in test_nav_home_from_memory
+    poi_data = await adapter.resolve_poi("家", user_id=user_id)
+app/adapters/navigation.py:106: in resolve_poi
+    addresses = self.p2_memory_service.parse_home_company_address(user_id)
+app/memory/p2_memory_service.py:669: in parse_home_company_address
+    ).all()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/query.py:2693: in all
+    return self._iter().all()  # type: ignore
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/query.py:2847: in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2308: in execute
+    return self._execute_internal(
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2180: in _execute_internal
+    conn = self._connection_for_bind(bind)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2047: in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+<string>:2: in _connection_for_bind
+    ???
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/state_changes.py:139: in _go
+    ret_value = fn(self, *arg, **kw)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:1143: in _connection_for_bind
+    conn = bind.connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3268: in connect
+    return self._connection_cls(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:147: in __init__
+    Connection._handle_dbapi_exception_noconnection(
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2430: in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:452: in connect
+    return _ConnectionFairy._checkout(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1269: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:716: in checkout
+    rec = pool._do_get()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:284: in _do_get
+    return self._create_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:393: in _create_connection
+    return _ConnectionRecord(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:678: in __init__
+    self.__connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:902: in __connect
+    with util.safe_reraise():
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:898: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/create.py:637: in connect
+    return dialect.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/default.py:616: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/psycopg2/__init__.py:122: in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+E   sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not translate host name "postgres" to address: Name or service not known
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+----------------------------- Captured stdout call -----------------------------
+[QwenMemoryExtractor] Initialized: model=qwen-turbo, base=https://dashscope.aliyuncs.com/compatible-mode/v1
+[P2Memory] Initialized with Qwen models (extract=qwen-turbo, embed=disabled)
+[P2Memory] Error saving memory: (psycopg2.OperationalError) could not translate host name "postgres" to address: Name or service not known
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+____________ TestNavigationIntegration.test_nav_home_not_in_memory _____________
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:452: in connect
+    return _ConnectionFairy._checkout(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1269: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:716: in checkout
+    rec = pool._do_get()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:284: in _do_get
+    return self._create_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:393: in _create_connection
+    return _ConnectionRecord(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:678: in __init__
+    self.__connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:902: in __connect
+    with util.safe_reraise():
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:898: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/create.py:637: in connect
+    return dialect.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/default.py:616: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/psycopg2/__init__.py:122: in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+E   psycopg2.OperationalError: could not translate host name "postgres" to address: Name or service not known
+
+The above exception was the direct cause of the following exception:
+tests/test_p2_memory.py:481: in test_nav_home_not_in_memory
+    poi_data = await adapter.resolve_poi("家", user_id=user_id)
+app/adapters/navigation.py:106: in resolve_poi
+    addresses = self.p2_memory_service.parse_home_company_address(user_id)
+app/memory/p2_memory_service.py:669: in parse_home_company_address
+    ).all()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/query.py:2693: in all
+    return self._iter().all()  # type: ignore
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/query.py:2847: in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2308: in execute
+    return self._execute_internal(
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2180: in _execute_internal
+    conn = self._connection_for_bind(bind)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2047: in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+<string>:2: in _connection_for_bind
+    ???
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/state_changes.py:139: in _go
+    ret_value = fn(self, *arg, **kw)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/orm/session.py:1143: in _connection_for_bind
+    conn = bind.connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3268: in connect
+    return self._connection_cls(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:147: in __init__
+    Connection._handle_dbapi_exception_noconnection(
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2430: in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:452: in connect
+    return _ConnectionFairy._checkout(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1269: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:716: in checkout
+    rec = pool._do_get()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:284: in _do_get
+    return self._create_connection()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:393: in _create_connection
+    return _ConnectionRecord(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:678: in __init__
+    self.__connect()
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:902: in __connect
+    with util.safe_reraise():
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/pool/base.py:898: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/create.py:637: in connect
+    return dialect.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/sqlalchemy/engine/default.py:616: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+/home/ubuntu/.local/lib/python3.12/site-packages/psycopg2/__init__.py:122: in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+E   sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not translate host name "postgres" to address: Name or service not known
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+----------------------------- Captured stdout call -----------------------------
+[QwenMemoryExtractor] Initialized: model=qwen-turbo, base=https://dashscope.aliyuncs.com/compatible-mode/v1
+[P2Memory] Initialized with Qwen models (extract=qwen-turbo, embed=disabled)
+=============================== warnings summary ===============================
+app/storage/database.py:12
+  /workspace/app/storage/database.py:12: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+tests/test_p2_memory.py::TestNavigationIntegration::test_nav_home_from_memory
+  /home/ubuntu/.local/lib/python3.12/site-packages/pydantic/_internal/_fields.py:149: UserWarning: Field "model_filter" has conflict with protected namespace "model_".
+  
+  You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_p2_memory.py::TestNavigationIntegration::test_nav_home_from_memory
+FAILED tests/test_p2_memory.py::TestNavigationIntegration::test_nav_home_not_in_memory
+============= 2 failed, 23 passed, 4 skipped, 2 warnings in 0.98s ==============
