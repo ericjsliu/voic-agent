@@ -361,8 +361,9 @@ async def health():
     if app_state.pg_store:
         try:
             from .storage import get_db
+            from sqlalchemy import text
             db = get_db()
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))  # Stage 补丁：使用text()包装SQL
             db.close()
             pg_healthy = True
         except:
