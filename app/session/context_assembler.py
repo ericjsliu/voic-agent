@@ -147,6 +147,11 @@ class ContextAssembler:
                     # 组合user_id（accountId:driverId格式）
                     user_id = f"account_default:{driver_id}"
                     
+                    # 关记忆：不召回
+                    if self.p2_memory_service.is_opted_out(user_id):
+                        print(f"[ContextAssembler] opt_out skip recall: {user_id}")
+                        return memory_slice
+                    
                     # 召回TopN记忆
                     memories = self.p2_memory_service.search_memories(
                         user_id=user_id,

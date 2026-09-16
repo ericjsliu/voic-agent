@@ -35,6 +35,10 @@ class AuditEventType(str, Enum):
     REWRITE = "rewrite"
     CANCEL = "cancel"
     TTS_EMIT = "tts_emit"
+    MEMORY_PUT = "memory_put"
+    MEMORY_SEARCH = "memory_search"
+    MEMORY_PUT_BLOCKED = "memory_put_blocked"
+    MEMORY_PUT_MASKED = "memory_put_masked"
 
 
 class AuditEvent(BaseModel):

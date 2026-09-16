@@ -106,22 +106,8 @@ class Planner:
         # 构建系统提示
         system_prompt = self._build_system_prompt()
         
-        # 构建用户消息
-        user_message = f"""用户输入：{user_utterance}
-
-当前上下文：
-- 位置：{context.current_location}
-- 最近对话：{context.recent_utterances[-3:] if context.recent_utterances else []}
-- 车辆状态：{context.shadow_state}
-
-请分析用户意图，生成TaskGraph JSON。确保：
-1. 只使用系统提示列出的合法 domain/action（不要用已废弃的 ac_on、ac_set_temp）
-2. L2级别动作（如door_lock）必须标记level=L2；空调为L0，车窗为L1
-3. 导航：你只填 goal.poi_name（如「家」「机场」）；坐标由地图工具解析，不要编造经纬度
-4. 歌手点歌用 play_by_artist 并填 artist；调温用 set_ac_temp 并填 temperature
-5. 手册/故障/如何使用必须 knowledge.query_manual，禁止 chitchat
-6. 依赖关系正确（depends_on）；独立任务可并行
-"""
+        # 构建用户消息（含 P2 召回记忆，与 UI TopN 同源）
+        user_message = self._build_user_message(user_utterance, context)
         
         # 调用LLM (使用JSON mode如果支持)
         try:
@@ -391,11 +377,71 @@ class Planner:
         
         return taskgraph
     
+    @staticmethod
+    def _get_relevant_memories(context: DialogueContext) -> list:
+        """从 Assemble 的 memory_slice 取召回结果（与 HTTP/WS UI 同源）。"""
+        if not context or not context.memory_slice:
+            return []
+        memories = context.memory_slice.get("relevant_memories") or []
+        if not isinstance(memories, list):
+            return []
+        return memories
+
+    @classmethod
+    def format_relevant_memories_for_prompt(cls, memories: list) -> str:
+        """将召回记忆格式化为 Planner 提示片段（受 Assemble 定额约束，此处不再二次截断）。
+        
+        Returns:
+            多行文本；无记忆时返回空串
+        """
+        if not memories:
+            return ""
+        lines = []
+        for i, mem in enumerate(memories, start=1):
+            if not isinstance(mem, dict):
+                continue
+            content = (mem.get("content") or "").strip()
+            if not content:
+                continue
+            category = (mem.get("category") or "").strip()
+            if category:
+                lines.append(f"{i}. [{category}] {content}")
+            else:
+                lines.append(f"{i}. {content}")
+        if not lines:
+            return ""
+        return "用户长期记忆（仅供个性化规划，不得编造未列出的事实）：\n" + "\n".join(lines)
+
+    def _build_user_message(self, user_utterance: str, context: DialogueContext) -> str:
+        """构建发给 Planner LLM 的用户消息（含召回记忆）。"""
+        memories = self._get_relevant_memories(context)
+        memory_block = self.format_relevant_memories_for_prompt(memories)
+        memory_section = f"\n- {memory_block}" if memory_block else "\n- 用户长期记忆：无"
+
+        return f"""用户输入：{user_utterance}
+
+当前上下文：
+- 位置：{context.current_location}
+- 最近对话：{context.recent_utterances[-3:] if context.recent_utterances else []}
+- 车辆状态：{context.shadow_state}{memory_section}
+
+请分析用户意图，生成TaskGraph JSON。确保：
+1. 只使用系统提示列出的合法 domain/action（不要用已废弃的 ac_on、ac_set_temp）
+2. L2级别动作（如door_lock）必须标记level=L2；空调为L0，车窗为L1
+3. 导航：你只填 goal.poi_name（如「家」「机场」）；坐标由地图工具解析，不要编造经纬度
+4. 歌手点歌用 play_by_artist 并填 artist；调温用 set_ac_temp 并填 temperature
+5. 手册/故障/如何使用必须 knowledge.query_manual，禁止 chitchat
+6. 依赖关系正确（depends_on）；独立任务可并行
+7. 若有长期记忆：闲聊/偏好/导航「家」「公司」等应优先使用记忆 content，不得忽略已列出的事实
+"""
+
     def _build_system_prompt(self) -> str:
         """构建LLM系统提示"""
         return """你是智能座舱语音对话代理的任务规划器。
 
 你的职责是将用户的自然语言请求转换为结构化的TaskGraph JSON。
+
+当上下文提供「用户长期记忆」时：必须用于个性化（偏好、称呼、家/公司地址文本等）；不得编造未给出的记忆；不得把记忆原文整段回显为对话 transcript。
 
 ## 支持的域和动作（必须用这些名字）：
 
