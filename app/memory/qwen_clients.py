@@ -241,18 +241,41 @@ class QwenEmbedding:
         """
         timeout = timeout or self.timeout
         
+        if not text or len(text.strip()) == 0:
+            print(f"[QwenEmbedding] ERROR: Empty text, cannot generate embedding")
+            return None
+        
         try:
-            # 显式传递dimensions参数（用户锁定1024）
-            response = openai.Embedding.create(
-                model=self.model,
-                input=text,
-                dimensions=self.dimension,
-                timeout=timeout
-            )
+            # DashScope text-embedding-v3 默认1024维，需要在parameters中指定
+            # 注意：DashScope的OpenAI兼容模式可能不支持dimensions参数，需要在extra_body中传递
+            try:
+                # 尝试使用dimensions参数（OpenAI标准）
+                response = openai.Embedding.create(
+                    model=self.model,
+                    input=text,
+                    dimensions=self.dimension,
+                    timeout=timeout
+                )
+            except Exception as e1:
+                # 如果不支持dimensions参数，尝试不传（text-embedding-v3默认1024维）
+                print(f"[QwenEmbedding] Dimensions param not supported, using default: {e1}")
+                response = openai.Embedding.create(
+                    model=self.model,
+                    input=text,
+                    timeout=timeout
+                )
+            
+            if not response or 'data' not in response or len(response['data']) == 0:
+                print(f"[QwenEmbedding] ERROR: Empty response from API")
+                return None
             
             embedding = response['data'][0]['embedding']
             
             # 验证维度（必须匹配用户锁定值）
+            if not embedding or len(embedding) == 0:
+                print(f"[QwenEmbedding] ERROR: Got empty embedding vector")
+                return None
+            
             if len(embedding) != self.dimension:
                 print(f"[QwenEmbedding] ERROR: Expected {self.dimension} dims, got {len(embedding)}")
                 return None  # 失败返回None，绝不写0维占位符
@@ -279,21 +302,46 @@ class QwenEmbedding:
         """
         timeout = timeout or self.timeout
         
+        if not texts or len(texts) == 0:
+            return []
+        
+        # 过滤空文本
+        valid_texts = [t for t in texts if t and len(t.strip()) > 0]
+        if len(valid_texts) != len(texts):
+            print(f"[QwenEmbedding] WARNING: Filtered {len(texts) - len(valid_texts)} empty texts")
+        
         try:
-            # 显式传递dimensions参数（用户锁定1024）
-            response = openai.Embedding.create(
-                model=self.model,
-                input=texts,
-                dimensions=self.dimension,
-                timeout=timeout
-            )
+            # DashScope text-embedding-v3 默认1024维
+            try:
+                # 尝试使用dimensions参数
+                response = openai.Embedding.create(
+                    model=self.model,
+                    input=valid_texts,
+                    dimensions=self.dimension,
+                    timeout=timeout
+                )
+            except Exception as e1:
+                # 如果不支持dimensions参数，使用默认
+                print(f"[QwenEmbedding] Dimensions param not supported in batch, using default: {e1}")
+                response = openai.Embedding.create(
+                    model=self.model,
+                    input=valid_texts,
+                    timeout=timeout
+                )
+            
+            if not response or 'data' not in response:
+                print(f"[QwenEmbedding] ERROR: Empty response from batch API")
+                return [None] * len(texts)
             
             embeddings = [item['embedding'] for item in response['data']]
             
             # 验证维度
             results = []
             for emb in embeddings:
-                if len(emb) != self.dimension:
+                if not emb or len(emb) == 0:
+                    print(f"[QwenEmbedding] ERROR: Got empty embedding in batch")
+                    results.append(None)
+                elif len(emb) != self.dimension:
                     print(f"[QwenEmbedding] ERROR: Expected {self.dimension} dims, got {len(emb)}")
                     results.append(None)  # 失败返回None
                 else:
