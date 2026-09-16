@@ -534,8 +534,13 @@ class Planner:
                     from ..schemas.taskgraph import NavigationAction
                     action: NavigationAction = step.action
                     if action.action in ("nav_to", "set_nav_goal"):
-                        if not action.goal or action.goal.latitude == 0:
+                        if not action.goal:
                             raise ValueError(f"Unresolved POI in step {step.step_id}")
+                        # 家/公司允许latitude=0（云端不geocode，只发address_text）
+                        # 其他POI需要坐标或让车端解析
+                        if action.goal.poi_name not in ["家", "公司"]:
+                            if action.goal.latitude == 0 and not action.goal.address:
+                                raise ValueError(f"Unresolved POI in step {step.step_id}")
 
 
     def _chitchat_response(self, utterance: str) -> str:

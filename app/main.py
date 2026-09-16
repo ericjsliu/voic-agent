@@ -444,19 +444,19 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             response_text = create_active_memory_response(memory_id, parsed['normalized_content'])
             
             # 返回简单确认TaskGraph
-            from .schemas.taskgraph import TaskGraph, Task, Step, DomainType
+            from .schemas.taskgraph import TaskGraph, Task, Step, DomainType, ChitchatAction, ActionLevel
             taskgraph = TaskGraph(
                 trace_id=trace_id,
                 session_id=session_info.session_id,
+                timestamp=datetime.utcnow().isoformat() + "Z",
                 tasks=[
                     Task(
                         task_id=f"t_{uuid.uuid4().hex[:8]}",
-                        session_id=session_info.session_id,
                         steps=[
                             Step(
                                 step_id="s_memory_confirm",
                                 domain=DomainType.CHITCHAT,
-                                action={"action": "speak", "text": response_text},
+                                action=ChitchatAction(response=response_text, level=ActionLevel.L0),
                                 depends_on=[]
                             )
                         ]
