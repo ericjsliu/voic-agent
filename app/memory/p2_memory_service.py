@@ -62,7 +62,10 @@ BLACKLIST_PATTERNS = [
 
 
 class SafetyGate:
-    """安全门闩：BLOCK/MASK/PASS"""
+    """安全门闩：BLOCK/MASK/PASS
+    
+    Stage 3: 实现MASK能力，可以保留非敏感部分
+    """
     
     @staticmethod
     def check(content: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -72,12 +75,15 @@ class SafetyGate:
             (status, reason, cleaned_content)
             - status: 'BLOCK' | 'MASK' | 'PASS'
             - reason: 阻止原因（仅BLOCK时）
-            - cleaned_content: 清洗后内容（仅PASS时）
+            - cleaned_content: 清洗后内容（PASS/MASK时）
         """
-        # 检查黑名单
+        # 检查黑名单（Stage 3: 强PII直接BLOCK）
         for pattern, reason_type in BLACKLIST_PATTERNS:
             if re.search(pattern, content, re.IGNORECASE):
-                return ('BLOCK', f'contains_{reason_type}', None)
+                # 对于强PII（手机、身份证、银行卡），直接BLOCK
+                if reason_type in ['phone', 'id_card', 'bank_card', 'password', 'medical_record']:
+                    return ('BLOCK', f'contains_{reason_type}', None)
+                # 其他敏感信息可以MASK（未来扩展）
         
         # 检查对话原文关键词（阻止存储完整对话）
         if len(content) > 500 and ('用户说' in content or '我说' in content or '对话' in content):
@@ -339,16 +345,28 @@ class P2MemoryService:
         self, 
         enable_vector: bool = True,
         extract_model: Optional[str] = None,
-        embed_model: Optional[str] = None
+        embed_model: Optional[str] = None,
+        redis_url: Optional[str] = None
     ):
         """
         Args:
             enable_vector: 是否启用向量召回（P0可False，P2需True）
             extract_model: 提取模型名称（默认qwen-turbo）
             embed_model: Embedding模型名称（默认text-embedding-v3）
+            redis_url: Redis URL（用于opt_out存储和durable queue）
         """
         self.enable_vector = enable_vector
         self.safety_gate = SafetyGate()
+        
+        # Stage 5: Redis client用于opt_out标志和durable queue
+        import os
+        self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+        try:
+            import redis
+            self.redis_client = redis.from_url(self.redis_url)
+        except:
+            print(f"[P2Memory] Redis not available, opt_out will use DB")
+            self.redis_client = None
         
         # 初始化Qwen客户端（失败时使用规则fallback）
         try:
@@ -392,6 +410,11 @@ class P2MemoryService:
         Returns:
             memory_id or None（如被阻止）
         """
+        # Stage 5: 检查opt_out
+        if self._is_opted_out(user_id):
+            print(f"[P2Memory] User opted out, skipping: {user_id}")
+            return None
+        
         # 1. 安全过滤
         status, reason, cleaned = self.safety_gate.check(content)
         if status == 'BLOCK':
@@ -399,14 +422,25 @@ class P2MemoryService:
             self._log_audit('memory_put_blocked', user_id, trace_id, reason)
             return None
         
-        # 2. 分类（优先使用LLM结果）
+        # 2. 分类（Stage 2: 传递LLM提取结果）
         llm_extract_result = None
+        if not is_active and self.extractor_client:
+            # 被动提取：使用LLM提取facts + category
+            try:
+                llm_extract_result = self.extractor_client.extract_facts(
+                    utterance=cleaned,
+                    assistant_response="",  # 简化：被动路径不需要response
+                    timeout=3.0
+                )
+            except Exception as e:
+                print(f"[P2Memory] LLM extraction failed in put_memory: {e}")
+        
         category = self.classifier.classify(cleaned, llm_result=llm_extract_result)
         if category is None:
             print(f"[P2Memory] Cannot classify, discarding: {cleaned[:50]}")
             return None
         
-        # 3. 去重与冲突检测（简化版：同类同内容不重复写）
+        # 3. 去重与冲突检测（Stage 4: embedding cosine ≥0.95）
         db: Session = get_db()
         try:
             # 查找相似记忆
@@ -415,15 +449,40 @@ class P2MemoryService:
                 category=category
             ).all()
             
-            # 简单去重：内容相似度>0.95
+            # Stage 4: 向量去重（cosine ≥0.95）或字符相似度（>0.95）
+            query_embedding = None
+            if self.enable_vector and self.embedding_client:
+                query_embedding = self._generate_embedding(cleaned)
+            
             for mem in existing:
-                if self._similarity(mem.content, cleaned) > 0.95:
-                    # 更新权重
-                    mem.weight = min(mem.weight + 0.1, 2.0)
-                    mem.updated_at = datetime.utcnow()
-                    db.commit()
-                    print(f"[P2Memory] Updated existing memory weight: {mem.memory_id}")
-                    return mem.memory_id
+                similarity = 0.0
+                
+                # 优先使用向量相似度
+                if query_embedding and mem.embedding:
+                    similarity = self._cosine_similarity(query_embedding, mem.embedding)
+                else:
+                    # Fallback: 字符Jaccard
+                    similarity = self._similarity(mem.content, cleaned)
+                
+                if similarity >= 0.95:
+                    # Stage 4: 相似度>=0.95 → 可能是重复或冲突
+                    # 检查内容是否完全相同
+                    if mem.content == cleaned:
+                        # 完全相同：更新权重
+                        mem.weight = min(mem.weight + 0.1, 2.0)
+                        mem.updated_at = datetime.utcnow()
+                        db.commit()
+                        print(f"[P2Memory] Updated existing memory weight: {mem.memory_id}")
+                        return mem.memory_id
+                    else:
+                        # 内容不同但相似度高：冲突 → 递增version_id并替换内容
+                        mem.version_id += 1
+                        mem.content = cleaned
+                        mem.embedding = query_embedding
+                        mem.updated_at = datetime.utcnow()
+                        db.commit()
+                        print(f"[P2Memory] Conflict resolved: version {mem.version_id}, memory_id {mem.memory_id}")
+                        return mem.memory_id
             
             # 4. 生成embedding（如启用）
             embedding = None
@@ -477,6 +536,11 @@ class P2MemoryService:
         Returns:
             记忆列表（按weight×similarity重排）
         """
+        # Stage 5: 检查opt_out
+        if self._is_opted_out(user_id):
+            print(f"[P2Memory] User opted out, skipping search: {user_id}")
+            return []
+        
         if not self.enable_vector:
             # P0: 仅返回KV热点（家/公司/偏好）
             return self._get_hot_memories(user_id)
@@ -613,9 +677,41 @@ class P2MemoryService:
             db.close()
     
     def opt_out(self, user_id: str) -> bool:
-        """用户选择退出记忆功能"""
-        # 实际应标记用户状态，这里简化为清空
-        return self.clear_user_memories(user_id) >= 0
+        """用户选择退出记忆功能（Stage 5）
+        
+        设置opt_out标志并清空现有记忆
+        """
+        # 设置opt_out标志（Redis优先，fallback到DB）
+        try:
+            if self.redis_client:
+                self.redis_client.set(f"memory:opt_out:{user_id}", "1", ex=3600 * 24 * 365)  # 1年过期
+            print(f"[P2Memory] User opted out: {user_id}")
+        except Exception as e:
+            print(f"[P2Memory] Failed to set opt_out flag: {e}")
+        
+        # 清空现有记忆
+        count = self.clear_user_memories(user_id)
+        return count >= 0
+    
+    def opt_in(self, user_id: str) -> bool:
+        """用户选择恢复记忆功能（Stage 5）"""
+        try:
+            if self.redis_client:
+                self.redis_client.delete(f"memory:opt_out:{user_id}")
+            print(f"[P2Memory] User opted in: {user_id}")
+            return True
+        except Exception as e:
+            print(f"[P2Memory] Failed to remove opt_out flag: {e}")
+            return False
+    
+    def _is_opted_out(self, user_id: str) -> bool:
+        """检查用户是否opt_out（Stage 5）"""
+        try:
+            if self.redis_client:
+                return self.redis_client.exists(f"memory:opt_out:{user_id}") > 0
+        except Exception as e:
+            print(f"[P2Memory] Failed to check opt_out flag: {e}")
+        return False
     
     def handle_passive_extraction(
         self,
@@ -694,6 +790,29 @@ class P2MemoryService:
         if not set1 or not set2:
             return 0.0
         return len(set1 & set2) / len(set1 | set2)
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """计算余弦相似度（Stage 4）
+        
+        Args:
+            vec1: 向量1
+            vec2: 向量2
+        
+        Returns:
+            余弦相似度 [0, 1]
+        """
+        if not vec1 or not vec2 or len(vec1) != len(vec2):
+            return 0.0
+        
+        # 计算点积和模
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        norm1 = sum(a * a for a in vec1) ** 0.5
+        norm2 = sum(b * b for b in vec2) ** 0.5
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        return dot_product / (norm1 * norm2)
     
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成embedding向量（1024维，用户锁定text-embedding-v3）
