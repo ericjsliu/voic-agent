@@ -93,9 +93,15 @@ class NavigationAdapter(BaseDomainAdapter):
         if not text:
             return None
         
-        # 标准化别名
+        # 标准化别名（精确匹配）
         if text in POI_ALIASES:
             text = POI_ALIASES[text]
+        # 如果不是精确匹配，检查是否包含别名（例如"导航回家"包含"回家"）
+        else:
+            for alias, standard_name in POI_ALIASES.items():
+                if alias in text:
+                    text = standard_name
+                    break
 
         # 家/公司：从P2 memory读取地址（云端不做geocode）
         if text in ["家", "公司"]:

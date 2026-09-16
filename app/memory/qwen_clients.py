@@ -9,7 +9,7 @@
 import os
 import json
 from typing import Optional, Dict, List, Any
-import openai
+from openai import OpenAI
 
 
 class QwenMemoryExtractor:
@@ -36,14 +36,14 @@ class QwenMemoryExtractor:
             timeout: 超时时间（秒）
         """
         self.model = model or os.getenv('MEMORY_EXTRACT_MODEL', 'qwen-turbo')
-        
-        # 使用现有的OpenAI配置
-        openai.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        openai.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
-        
+        self.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
         self.timeout = timeout
         
-        print(f"[QwenMemoryExtractor] Initialized: model={self.model}, base={openai.api_base}")
+        # 创建OpenAI v1+ 客户端
+        self.client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+        
+        print(f"[QwenMemoryExtractor] Initialized: model={self.model}, base={self.api_base}")
     
     def score_utterance(
         self,
@@ -91,7 +91,7 @@ class QwenMemoryExtractor:
         user_prompt = f"用户话语：{utterance}"
         
         try:
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -167,7 +167,7 @@ class QwenMemoryExtractor:
         user_prompt = f"用户话语：{utterance}"
         
         try:
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -214,16 +214,16 @@ class QwenEmbedding:
             timeout: 超时时间（秒）
         """
         self.model = model or os.getenv('MEMORY_EMBED_MODEL', 'text-embedding-v3')
-        
-        # 使用现有的OpenAI配置
-        openai.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        openai.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
-        
+        self.api_base = api_base or os.getenv('OPENAI_API_BASE', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
         self.timeout = timeout
         # 用户锁定：text-embedding-v3 输出1024维
         self.dimension = int(os.getenv('EMBEDDING_DIMENSIONS', '1024'))
         
-        print(f"[QwenEmbedding] Initialized: model={self.model}, dim={self.dimension}, base={openai.api_base}")
+        # 创建OpenAI v1+ 客户端
+        self.client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+        
+        print(f"[QwenEmbedding] Initialized: model={self.model}, dim={self.dimension}, base={self.api_base}")
     
     def embed(
         self,
@@ -250,7 +250,7 @@ class QwenEmbedding:
             # 注意：DashScope的OpenAI兼容模式可能不支持dimensions参数，需要在extra_body中传递
             try:
                 # 尝试使用dimensions参数（OpenAI标准）
-                response = openai.Embedding.create(
+                response = self.client.embeddings.create(
                     model=self.model,
                     input=text,
                     dimensions=self.dimension,
@@ -259,17 +259,17 @@ class QwenEmbedding:
             except Exception as e1:
                 # 如果不支持dimensions参数，尝试不传（text-embedding-v3默认1024维）
                 print(f"[QwenEmbedding] Dimensions param not supported, using default: {e1}")
-                response = openai.Embedding.create(
+                response = self.client.embeddings.create(
                     model=self.model,
                     input=text,
                     timeout=timeout
                 )
             
-            if not response or 'data' not in response or len(response['data']) == 0:
+            if not response or not response.data or len(response.data) == 0:
                 print(f"[QwenEmbedding] ERROR: Empty response from API")
                 return None
             
-            embedding = response['data'][0]['embedding']
+            embedding = response.data[0].embedding
             
             # 验证维度（必须匹配用户锁定值）
             if not embedding or len(embedding) == 0:
@@ -314,7 +314,7 @@ class QwenEmbedding:
             # DashScope text-embedding-v3 默认1024维
             try:
                 # 尝试使用dimensions参数
-                response = openai.Embedding.create(
+                response = self.client.embeddings.create(
                     model=self.model,
                     input=valid_texts,
                     dimensions=self.dimension,
@@ -323,17 +323,17 @@ class QwenEmbedding:
             except Exception as e1:
                 # 如果不支持dimensions参数，使用默认
                 print(f"[QwenEmbedding] Dimensions param not supported in batch, using default: {e1}")
-                response = openai.Embedding.create(
+                response = self.client.embeddings.create(
                     model=self.model,
                     input=valid_texts,
                     timeout=timeout
                 )
             
-            if not response or 'data' not in response:
+            if not response or not response.data:
                 print(f"[QwenEmbedding] ERROR: Empty response from batch API")
                 return [None] * len(texts)
             
-            embeddings = [item['embedding'] for item in response['data']]
+            embeddings = [item.embedding for item in response.data]
             
             # 验证维度
             results = []
