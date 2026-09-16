@@ -407,28 +407,25 @@ class TestP2MemoryService:
 
 
 class TestNavigationIntegration:
-    """导航集成测试"""
+    """导航集成测试（mock memory service，无需Postgres）"""
     
     @pytest.mark.asyncio
     async def test_nav_home_from_memory(self):
         """M-N1: 导航回家（从content获取地址文本，云端不返回坐标）"""
         from app.adapters.navigation import NavigationAdapter
+        from unittest.mock import Mock, MagicMock
         
-        # 创建P2服务并存储家地址
-        service = P2MemoryService(enable_vector=False)
+        # Mock P2MemoryService
+        mock_memory_service = Mock()
+        mock_memory_service.parse_home_company_address = MagicMock(return_value={
+            'home': '北京市朝阳区望京SOHO T1',
+            'company': None
+        })
+        
+        # 创建导航适配器（注入mock service）
+        adapter = NavigationAdapter(p2_memory_service=mock_memory_service)
+        
         user_id = "account_test:driver_006"
-        
-        # 存储家地址到memory
-        home_address = "北京市朝阳区望京SOHO T1"
-        service.put_memory(
-            user_id=user_id,
-            content=f"家地址：{home_address}",
-            source_ref="test:nav",
-            is_active=True
-        )
-        
-        # 创建导航适配器
-        adapter = NavigationAdapter(p2_memory_service=service)
         
         # 解析"家"
         poi_data = await adapter.resolve_poi("家", user_id=user_id)
@@ -438,9 +435,12 @@ class TestNavigationIntegration:
         assert poi_data['poi_name'] == '家'
         
         # 云端架构：只返回地址文本，不返回坐标（车端自行geocode）
-        assert poi_data['address'] == home_address
+        assert poi_data['address'] == '北京市朝阳区望京SOHO T1'
         assert poi_data['latitude'] == 0.0
         assert poi_data['longitude'] == 0.0
+        
+        # 验证memory service被正确调用
+        mock_memory_service.parse_home_company_address.assert_called_once_with(user_id)
         
         # 验证execute返回的下行消息包含address_text
         from app.schemas.taskgraph import Step, DomainType, NavigationAction, NavGoal, RoutePreferences
@@ -459,28 +459,61 @@ class TestNavigationIntegration:
         
         # 验证下行消息格式（家/公司使用address_text）
         assert result['goal']['type'] == '家'
-        assert result['goal']['address_text'] == home_address
+        assert result['goal']['address_text'] == '北京市朝阳区望京SOHO T1'
         assert 'latitude' not in result['goal']  # 云端不下发坐标
         assert 'longitude' not in result['goal']
-        
-        # 清理
-        service.clear_user_memories(user_id)
     
     @pytest.mark.asyncio
     async def test_nav_home_not_in_memory(self):
         """测试导航回家但memory中没有地址（应返回None，让planner询问用户）"""
         from app.adapters.navigation import NavigationAdapter
+        from unittest.mock import Mock, MagicMock
         
-        service = P2MemoryService(enable_vector=False)
+        # Mock P2MemoryService - 返回空地址
+        mock_memory_service = Mock()
+        mock_memory_service.parse_home_company_address = MagicMock(return_value={
+            'home': None,
+            'company': None
+        })
+        
+        adapter = NavigationAdapter(p2_memory_service=mock_memory_service)
+        
         user_id = "account_test:driver_007"
-        
-        # 不存储任何地址
-        adapter = NavigationAdapter(p2_memory_service=service)
         
         # 解析"家"应该返回None（因为memory中没有）
         poi_data = await adapter.resolve_poi("家", user_id=user_id)
         
         assert poi_data is None  # 没有mock fallback，必须返回None
+        
+        # 验证memory service被调用
+        mock_memory_service.parse_home_company_address.assert_called_once_with(user_id)
+    
+    @pytest.mark.asyncio
+    async def test_nav_company_from_memory(self):
+        """测试导航到公司（从memory获取地址）"""
+        from app.adapters.navigation import NavigationAdapter
+        from unittest.mock import Mock, MagicMock
+        
+        # Mock P2MemoryService
+        mock_memory_service = Mock()
+        mock_memory_service.parse_home_company_address = MagicMock(return_value={
+            'home': None,
+            'company': '北京市海淀区中关村软件园'
+        })
+        
+        adapter = NavigationAdapter(p2_memory_service=mock_memory_service)
+        
+        user_id = "account_test:driver_008"
+        
+        # 解析"公司"
+        poi_data = await adapter.resolve_poi("公司", user_id=user_id)
+        
+        # 验证POI数据
+        assert poi_data is not None
+        assert poi_data['poi_name'] == '公司'
+        assert poi_data['address'] == '北京市海淀区中关村软件园'
+        assert poi_data['latitude'] == 0.0
+        assert poi_data['longitude'] == 0.0
 
 
 if __name__ == '__main__':
