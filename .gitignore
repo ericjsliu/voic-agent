@@ -51,6 +51,9 @@ Thumbs.db
 # Logs
 *.log
 
+# P2 本地控制库（opt_out + 被动队列）
+data/
+
 # Frontend
 web/node_modules/
 reports

@@ -262,6 +262,23 @@ class TestPassiveExtractor:
         assert len(facts) > 0
         assert any("喜欢" in fact and "周杰伦" in fact for fact in facts)
 
+    def test_extract_with_meta_passes_llm_category(self):
+        """被动 LLM 必须带回 category，供 put_memory 使用（禁止写死 None）"""
+        from unittest.mock import Mock
+
+        mock_llm = Mock()
+        mock_llm.extract_facts = Mock(return_value={
+            "facts": ["喜欢听周杰伦"],
+            "category": "user_preference",
+        })
+        extractor = PassiveExtractor(llm_client=mock_llm)
+        meta = extractor.extract_with_meta("我平时喜欢听周杰伦", "好的")
+
+        assert meta["facts"] == ["喜欢听周杰伦"]
+        assert meta["category"] == "user_preference"
+        assert meta["llm_result"]["category"] == "user_preference"
+        mock_llm.extract_facts.assert_called_once()
+
 
 class TestActiveMemoryHandler:
     """主动记忆处理器测试"""

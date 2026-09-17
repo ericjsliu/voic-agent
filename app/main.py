@@ -202,12 +202,12 @@ async def lifespan(app: FastAPI):
     
     # P2 Memory Service (长期记忆)
     try:
-        app_state.p2_memory_service = P2MemoryService(enable_vector=True)
-        print("[Agent] P2 Memory Service initialized (vector enabled)")
+        app_state.p2_memory_service = P2MemoryService(enable_vector=True, start_worker=True)
+        print("[Agent] P2 Memory Service initialized (vector enabled, passive worker on)")
     except Exception as e:
         print(f"[Agent] WARNING: P2 Memory Service initialization failed: {e}")
-        app_state.p2_memory_service = P2MemoryService(enable_vector=False)
-        print("[Agent] P2 Memory Service initialized (vector disabled, KV only)")
+        app_state.p2_memory_service = P2MemoryService(enable_vector=False, start_worker=True)
+        print("[Agent] P2 Memory Service initialized (vector disabled, KV only, passive worker on)")
     
     # Rewrite/Cancel Manager
     if redis_client:
@@ -280,6 +280,11 @@ async def lifespan(app: FastAPI):
     
     # 关闭时清理
     print("[Agent] Shutting down...")
+    if app_state.p2_memory_service:
+        try:
+            app_state.p2_memory_service.stop_passive_worker()
+        except Exception as e:
+            print(f"[Agent] Passive worker stop error: {e}")
     if app_state.mqtt_client:
         app_state.mqtt_client.loop_stop()
         app_state.mqtt_client.disconnect()
@@ -360,13 +365,16 @@ async def health():
     pg_healthy = False
     if app_state.pg_store:
         try:
+            from sqlalchemy import text
             from .storage import get_db
             db = get_db()
-            db.execute("SELECT 1")
+            # SQLAlchemy 2.x 需要 text() 包装；否则误报 postgresql:false
+            db.execute(text("SELECT 1"))
             db.close()
             pg_healthy = True
-        except:
-            pass
+        except Exception as e:
+            print(f"[Health] postgresql check failed: {e}")
+            pg_healthy = False
     
     return {
         "status": "ok",
@@ -621,32 +629,27 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(execute_and_publish)
     
-    # P2: 被动提取（后台异步执行）
-    async def passive_extraction():
-        """被动记忆提取"""
-        try:
-            user_id = f"account_default:{session_info.driver_id}"
-            
-            # 获取assistant回复（从taskgraph推断）
-            assistant_response = ""
-            if taskgraph.tasks:
-                for task in taskgraph.tasks:
-                    for step in task.steps:
-                        if hasattr(step.action, 'text'):
-                            assistant_response += getattr(step.action, 'text', '')
-            
-            # 触发被动提取
-            app_state.p2_memory_service.handle_passive_extraction(
+    # P2: 被动提取入持久化队列（进程重启不丢；关记忆则跳过）
+    try:
+        user_id = f"account_default:{session_info.driver_id}"
+        assistant_response = ""
+        if taskgraph.tasks:
+            for task in taskgraph.tasks:
+                for step in task.steps:
+                    if hasattr(step.action, 'text'):
+                        assistant_response += getattr(step.action, 'text', '')
+                    elif hasattr(step.action, 'response'):
+                        assistant_response += getattr(step.action, 'response', '') or ''
+        if app_state.p2_memory_service:
+            app_state.p2_memory_service.enqueue_passive_extraction(
                 user_id=user_id,
                 utterance=request.utterance,
                 assistant_response=assistant_response,
                 context=context.model_dump() if hasattr(context, 'model_dump') else {},
-                trace_id=trace_id
+                trace_id=trace_id,
             )
-        except Exception as e:
-            print(f"[Agent] Passive extraction error (non-blocking): {e}")
-    
-    background_tasks.add_task(passive_extraction)
+    except Exception as e:
+        print(f"[Agent] Passive enqueue error (non-blocking): {e}")
     
     # 立即返回TaskGraph
     return DialogueResponse(
@@ -878,6 +881,21 @@ async def opt_out_memory(user_id: str):
         "success": success,
         "user_id": user_id,
         "message": "Memory feature disabled for user"
+    }
+
+
+@app.post("/memory/opt_in/{user_id}")
+async def opt_in_memory(user_id: str):
+    """重新开启P2记忆功能"""
+    if not app_state.p2_memory_service:
+        raise HTTPException(status_code=503, detail="P2 Memory Service not available")
+    
+    success = app_state.p2_memory_service.opt_in(user_id)
+    
+    return {
+        "success": success,
+        "user_id": user_id,
+        "message": "Memory feature enabled for user"
     }
 
 

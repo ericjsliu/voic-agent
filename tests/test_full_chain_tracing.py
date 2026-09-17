@@ -112,7 +112,11 @@ def test_audit_event_types_coverage():
         "refusal",
         "rewrite",
         "cancel",
-        "tts_emit"
+        "tts_emit",
+        "memory_put",
+        "memory_search",
+        "memory_put_blocked",
+        "memory_put_masked",
     }
     
     # 获取所有定义的事件类型
