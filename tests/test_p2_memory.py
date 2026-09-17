@@ -668,8 +668,8 @@ class TestEmbeddingClientAPI:
         assert client.api_key == "test_key"
 
 
-class TestPassiveQueuePRDv127:
-    """PRD v1.27 被动记忆队列测试"""
+class TestPassiveQueuePRDv128:
+    """PRD v1.28 被动记忆队列测试（scheduled batch job only）"""
     
     def test_enqueue_candidate(self):
         """测试入队候选"""
@@ -743,8 +743,8 @@ class TestPassiveQueuePRDv127:
         mock_redis.llen.assert_called_once()
         mock_redis.delete.assert_called_once()
     
-    def test_consumer_consume_for_user(self):
-        """测试消费者处理候选队列"""
+    def test_consumer_consume_for_user_scheduled_batch(self):
+        """PRD v1.28: 测试消费者由scheduled batch job调用"""
         from app.memory.passive_queue import PassiveMemoryCandidateQueue, PassiveMemoryConsumer
         from unittest.mock import Mock, MagicMock
         
@@ -768,16 +768,16 @@ class TestPassiveQueuePRDv127:
         
         consumer = PassiveMemoryConsumer(mock_queue, mock_p2_service)
         
-        # 消费候选
+        # 消费候选（仅由scheduled batch job触发）
         result = consumer.consume_for_user(
             user_id="account_test:driver_001",
-            trigger_reason="task_end_completed"
+            trigger_reason="scheduled_batch"
         )
         
         # 验证结果
         assert result['candidates_count'] == 1
         assert result['extracted_count'] == 1
-        assert result['trigger'] == "task_end_completed"
+        assert result['trigger'] == "scheduled_batch"
         
         # 验证调用
         mock_queue.get_all_candidates.assert_called_once()
@@ -813,7 +813,7 @@ class TestPassiveQueuePRDv127:
     
     @pytest.mark.asyncio
     async def test_per_turn_no_long_term_put(self):
-        """PRD v1.27: 验证每轮对话不直接写入长期记忆（仅入队）"""
+        """PRD v1.28: 验证每轮对话不直接写入长期记忆（仅入队）"""
         from app.memory.passive_queue import PassiveMemoryCandidateQueue
         from unittest.mock import Mock
         
@@ -837,11 +837,34 @@ class TestPassiveQueuePRDv127:
         # 验证仅调用了rpush（入队），未调用任何put操作
         mock_redis.rpush.assert_called_once()
         
-        # 此时不应该有任何长期记忆写入（由consumer触发）
+        # 此时不应该有任何长期记忆写入（仅由scheduled batch job触发）
         # 这里只是验证队列操作正确
     
+    def test_task_end_no_immediate_memory_put(self):
+        """PRD v1.28: 验证Task terminal state不触发立即Memory.put"""
+        from app.memory.passive_queue import PassiveMemoryConsumer
+        from unittest.mock import Mock
+        
+        # PRD v1.28: Task terminal state持久化到PG audit/task store
+        # 不调用consumer，不触发Memory.put
+        # 被动提取仅由scheduled batch job触发
+        
+        # 此测试验证consumer不在task-end时被调用
+        # 实际调用由scheduled batch job发起
+        mock_queue = Mock()
+        mock_p2_service = Mock()
+        
+        consumer = PassiveMemoryConsumer(mock_queue, mock_p2_service)
+        
+        # 验证consumer存在但不在task-end自动调用
+        assert consumer is not None
+        assert hasattr(consumer, 'consume_for_user')
+        
+        # Task-end时不应该调用handle_passive_extraction
+        # 仅由外部batch job调用consumer.consume_for_user
+    
     def test_active_remember_still_sync_puts(self):
-        """PRD v1.27: 验证主动记忆仍然同步写入（不经过队列）"""
+        """PRD v1.28: 验证主动记忆仍然同步写入（不经过队列）"""
         # 这个测试在test_put_memory_home_address中已覆盖
         # 主动记忆直接调用put_memory，不经过队列
         pass

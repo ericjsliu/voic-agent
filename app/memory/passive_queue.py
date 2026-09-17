@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-<<<<<<< HEAD
 """被动记忆写入持久化队列（SQLite）
 
-BackgroundTasks 进程挂了会丢任务；本队列落盘 + 重试 + 死信，重启后可继续消费。
-同时承载账号级 opt_out 开关（关记忆后不写不召回）。
+PRD v1.28: 被动记忆仅由scheduled batch job触发
+- BackgroundTasks 进程挂了会丢任务；本队列落盘 + 重试 + 死信，重启后可继续消费
+- 同时承载账号级 opt_out 开关（关记忆后不写不召回）
+- 对话中只入队，不立即写入长期记忆
+- 被动提取仅通过scheduled batch job触发（nightly/每N小时）
+- Batch job扫描PG task/audit records或SQLite队列
+- Score≥0.7 → 10-class → Memory.put
 """
 
 from __future__ import annotations

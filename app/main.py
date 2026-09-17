@@ -606,9 +606,14 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             )
             print(f"[Agent] TaskGraph execution result: {result}")
             
-            # PRD v1.28: Task terminal state只写流水（audit/task store），不触发Memory.put
-            # 被动记忆提取由scheduled batch job触发（nightly/每N小时），不在task-end立即触发
-            # Task已入队到持久化队列（SQLite），batch job稍后扫描处理
+            # PRD v1.28: Task terminal state持久化到PG audit/task store（replayable）
+            # 不触发Memory.put，不调用passive_consumer
+            # 被动记忆提取仅由scheduled batch job触发（nightly/每N小时）：
+            #   - Batch job扫描PG task/audit records或SQLite队列
+            #   - 可选参考Redis hot candidates队列
+            #   - Score≥0.7 → 10-class → Memory.put
+            # 
+            # 注：audit_logger已在planner/orchestrator各阶段记录trace events到PG
             
             # 再次检查profile ready（防止执行期间切换）
             if not app_state.session_manager.is_profile_ready(session_info.session_id):
@@ -646,7 +651,8 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(execute_and_publish)
     
     # PRD v1.28: 被动记忆候选入持久化队列（进程重启不丢；关记忆则跳过）
-    # 仅入队，NOT immediate Memory.put，由scheduled batch job触发提取
+    # 仅入队到SQLite队列，NOT immediate Memory.put，由scheduled batch job触发提取
+    # Batch job稍后扫描PG task records或SQLite队列
     try:
         # 检测主动记忆意图时不入队（已同步put）
         if active_memory_content:

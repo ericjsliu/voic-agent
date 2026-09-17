@@ -225,16 +225,17 @@ class MemoryClassifier:
 
 
 class PassiveExtractor:
-    """被动提取器：打分 + 提取（PRD v1.27: 由Consumer触发，不在对话回合中直接调用）
+    """被动提取器：打分 + 提取（PRD v1.27修正: 仅由scheduled batch job调用）
     
     PRD v1.24 锁定公式：
     score = 0.4 * long_term + 0.3 * stability + 0.3 * personal
     threshold = 0.7（可配置）
     
-    PRD v1.27 触发时机：
-    - Task terminal state (success/fail/cancel)
-    - Session idle timeout
-    - Scheduled consumer tick
+    PRD v1.27修正 触发时机：
+    - 仅由scheduled batch job触发（nightly/每N小时）
+    - Batch job扫描PG task/audit records
+    - 不在Task terminal state触发
+    - 不在Session idle触发
     
     使用 Qwen LLM 进行智能评分和事实提取
     """
@@ -860,12 +861,13 @@ class P2MemoryService:
         context: Dict[str, Any],
         trace_id: Optional[str] = None
     ):
-        """被动提取入口（PRD v1.27: 由PassiveMemoryConsumer触发，非对话回合直接调用）
+        """被动提取入口（PRD v1.27修正: 仅由scheduled batch job通过PassiveMemoryConsumer调用）
         
         触发时机：
-        - Task terminal state (success/fail/cancel)
-        - Session idle timeout
-        - Scheduled consumer tick
+        - 仅scheduled batch job（nightly/每N小时）
+        - Batch job扫描PG task/audit records或Redis队列
+        - 不在对话回合中调用
+        - 不在Task terminal state调用
         
         Args:
             user_id: 用户ID
