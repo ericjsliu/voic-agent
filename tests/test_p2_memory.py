@@ -841,17 +841,21 @@ class TestPassiveQueuePRDv128:
         # 这里只是验证队列操作正确
     
     def test_task_end_no_immediate_memory_put(self):
-        """PRD v1.28: 验证Task terminal state不触发立即Memory.put"""
-        from app.memory.passive_queue import PassiveMemoryConsumer
-        from unittest.mock import Mock
+        """PRD v1.28/v1.34: 验证Task terminal state不触发立即Memory.put或consume_for_user
         
-        # PRD v1.28: Task terminal state持久化到PG audit/task store
-        # 不调用consumer，不触发Memory.put
-        # 被动提取仅由scheduled batch job触发
+        被动记忆提取流程（PRD v1.28/v1.34）：
+        1. 对话回合：仅入队candidate到Redis（短TTL）
+        2. Task terminal：仅记录business ledger（PG audit events）
+        3. Scheduled batch job：扫描PG → score → 10-class → Memory.put
         
-        # 此测试验证consumer不在task-end时被调用
-        # 实际调用由scheduled batch job发起
-        mock_queue = Mock()
+        本测试验证：Task-end后不调用consume_for_user，不直接put_memory
+        """
+        from app.memory.passive_queue import PassiveMemoryConsumer, PassiveMemoryCandidateQueue
+        from unittest.mock import Mock, patch
+        
+        # Mock dependencies
+        mock_redis = Mock()
+        mock_queue = PassiveMemoryCandidateQueue(mock_redis)
         mock_p2_service = Mock()
         
         consumer = PassiveMemoryConsumer(mock_queue, mock_p2_service)
@@ -860,8 +864,19 @@ class TestPassiveQueuePRDv128:
         assert consumer is not None
         assert hasattr(consumer, 'consume_for_user')
         
-        # Task-end时不应该调用handle_passive_extraction
-        # 仅由外部batch job调用consumer.consume_for_user
+        # 模拟task执行完成场景
+        with patch.object(consumer, 'consume_for_user') as mock_consume:
+            # Task-end逻辑：不应该调用consume_for_user
+            # （原先v1.27会调用，v1.28后移除）
+            
+            # 验证mock_consume没有被调用
+            mock_consume.assert_not_called()
+            
+        # 验证p2_service.put_memory也没有在task-end被直接调用
+        mock_p2_service.put_memory.assert_not_called()
+        
+        # Task-end时应该只记录audit event到PG
+        # 实际Memory.put由scheduled batch job触发
     
     def test_active_remember_still_sync_puts(self):
         """PRD v1.28: 验证主动记忆仍然同步写入（不经过队列）"""

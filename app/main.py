@@ -60,8 +60,8 @@ class AppState:
         self.websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> [ws]
         self.audit_logger = None  # PRD v1.9 / detailed-v2.2: full-chain tracing
         self.p2_memory_service = None  # P2长期记忆服务
-        self.passive_queue = None  # PRD v1.27: 被动记忆候选队列
-        self.passive_consumer = None  # PRD v1.27: 被动记忆消费者
+        self.passive_queue = None  # PRD v1.28/v1.34: 被动记忆候选队列（仅入队，不立即提取）
+        self.passive_consumer = None  # PRD v1.28/v1.34: 被动记忆消费者（仅由scheduled batch job调用）
 
 
 app_state = AppState()
@@ -212,7 +212,9 @@ async def lifespan(app: FastAPI):
         app_state.p2_memory_service = P2MemoryService(enable_vector=False, start_worker=True)
         print("[Agent] P2 Memory Service initialized (vector disabled, KV only, passive worker on)")
     
-    # PRD v1.27: Passive Memory Queue & Consumer
+    # PRD v1.28/v1.34: Passive Memory Queue & Consumer
+    # - Queue: 对话回合仅入队候选到Redis（短TTL）
+    # - Consumer: 仅由scheduled batch job调用，扫描PG audit events批量打分提取
     if redis_client and app_state.p2_memory_service:
         app_state.passive_queue = PassiveMemoryCandidateQueue(redis_client)
         app_state.passive_consumer = PassiveMemoryConsumer(
@@ -606,22 +608,10 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             )
             print(f"[Agent] TaskGraph execution result: {result}")
             
-            # PRD v1.27: Task terminal state触发被动记忆提取
-            # 在task执行完成后（无论成功/失败/部分完成）触发durable extraction
-            if app_state.passive_consumer:
-                try:
-                    user_id = f"account_default:{session_info.driver_id}"
-                    task_status = result.get("status", "unknown")
-                    trigger_reason = f"task_end_{task_status}"
-                    
-                    # 异步触发消费者（不阻塞）
-                    consume_result = app_state.passive_consumer.consume_for_user(
-                        user_id=user_id,
-                        trigger_reason=trigger_reason
-                    )
-                    print(f"[Agent] Passive consumer triggered: {consume_result}")
-                except Exception as e:
-                    print(f"[Agent] Passive consumer error (non-blocking): {e}")
+            # PRD v1.28/v1.34: Task terminal仅记录business ledger
+            # 被动记忆提取仅由scheduled batch job触发（不在task-end调用consume_for_user）
+            # 此处可选：持久化task_id到PG business ledger（供batch job扫描）
+            # 当前实现：batch job直接扫描PG audit events表
             
             # 再次检查profile ready（防止执行期间切换）
             if not app_state.session_manager.is_profile_ready(session_info.session_id):
