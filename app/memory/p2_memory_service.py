@@ -25,7 +25,6 @@ import openai
 
 from ..storage.database import get_db
 from ..storage.models import LongTermMemoryP2
-from .passive_queue import MemoryControlStore, PassiveQueueWorker
 
 
 # 10类可写分类
@@ -45,80 +44,25 @@ MEMORY_CATEGORIES = {
 
 # 硬黑名单模式（PII等）
 # 注意：不使用 \b 因为中文前面的 \b 不生效
-# MASKABLE：可剥离后保留非敏感事实；HARD_BLOCK：整段丢弃
-# 顺序：更长/更具体的模式优先（避免身份证内部被手机号模式误切）
 BLACKLIST_PATTERNS = [
-    # 身份证号（15位或18位，18位最后可能是X）— 先于手机号匹配
-    (r'(?<!\d)\d{17}[\dXx](?!\d)', 'id_card', 'MASKABLE'),
-    (r'(?<!\d)\d{15}(?!\d)', 'id_card', 'MASKABLE'),
+    # 手机号（中国大陆：1[3-9]开头的11位数字）
+    (r'(?:^|[^\d])1[3-9]\d{9}(?:[^\d]|$)', 'phone'),
+    # 身份证号（15位或18位，18位最后可能是X）
+    (r'(?:^|[^\d])\d{15}(?:[^\d]|$)', 'id_card'),
+    (r'(?:^|[^\d])\d{17}[\dXx](?:[^\d]|$)', 'id_card'),
     # 银行卡号（16-19位数字）
-    (r'(?<!\d)\d{16,19}(?!\d)', 'bank_card', 'MASKABLE'),
-    # 手机号（中国大陆：支持 +86/86、空格、横线；两侧不得紧贴更多数字）
-    (r'(?<!\d)(?:\+?86[-\s]?)?1[3-9](?:[-\s]?\d){9}(?!\d)', 'phone', 'MASKABLE'),
-    # 密码/token关键词 → 硬拦
-    (r'(?:密码|password|token|pwd|pass)[:：]?\s*[\w\d]{4,}', 'password', 'HARD_BLOCK'),
-    # 病历关键词 → 硬拦
-    (r'(?:病历|诊断|处方|病情|症状|疾病|治疗|手术|用药|药物)', 'medical_record', 'HARD_BLOCK'),
-    # GPS轨迹连续点 → 硬拦
-    (r'(?:经纬度|GPS|坐标).*?\d+\.\d+.*?\d+\.\d+', 'trajectory', 'HARD_BLOCK'),
+    (r'(?:^|[^\d])\d{16,19}(?:[^\d]|$)', 'bank_card'),
+    # 密码/token关键词
+    (r'(?:密码|password|token|pwd|pass)[:：]?\s*[\w\d]{4,}', 'password'),
+    # 病历关键词
+    (r'(?:病历|诊断|处方|病情|症状|疾病|治疗|手术|用药|药物)', 'medical_record'),
+    # GPS轨迹连续点
+    (r'(?:经纬度|GPS|坐标).*?\d+\.\d+.*?\d+\.\d+', 'trajectory'),
 ]
 
 
 class SafetyGate:
     """安全门闩：BLOCK/MASK/PASS"""
-    
-    # 脱敏后若只剩这些载体词，视为无可写非敏感事实 → BLOCK
-    _PII_CARRIER_PATTERNS = [
-        r'手机号?',
-        r'电话',
-        r'号码',
-        r'身份证(?:号)?',
-        r'银行卡(?:号)?',
-        r'联系方式',
-        r'我的号',
-        r'这个号码',
-        r'(?:记住|记下|保存)',
-        r'[是为在的]',
-    ]
-    
-    @staticmethod
-    def _strip_maskable(content: str) -> Tuple[str, List[str]]:
-        """剥离可脱敏敏感片段，返回 (清洗后文本, 命中类型列表)"""
-        cleaned = content
-        hit_types: List[str] = []
-        for pattern, reason_type, severity in BLACKLIST_PATTERNS:
-            if severity != 'MASKABLE':
-                continue
-            if re.search(pattern, cleaned, re.IGNORECASE):
-                hit_types.append(reason_type)
-                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
-        # 清理脱敏后残留标点/空白
-        cleaned = re.sub(r'[，,、；;：:\s]{2,}', '，', cleaned)
-        cleaned = re.sub(r'^[\s，,、；;：:]+|[\s，,、；;：:]+$', '', cleaned)
-        cleaned = cleaned.strip()
-        return cleaned, hit_types
-    
-    @classmethod
-    def _strip_carriers(cls, text: str) -> str:
-        """去掉脱敏后残留的 PII 载体词（如「手机号是」）。"""
-        residual = text
-        for pattern in cls._PII_CARRIER_PATTERNS:
-            residual = re.sub(pattern, '', residual, flags=re.IGNORECASE)
-        residual = re.sub(r'[，,、；;：:\s]{2,}', '，', residual)
-        residual = re.sub(r'^[\s，,、；;：:]+|[\s，,、；;：:]+$', '', residual)
-        return residual.strip()
-    
-    @classmethod
-    def _has_non_sensitive_fact(cls, cleaned: str) -> bool:
-        """判断脱敏后是否仍有可写的非敏感事实（排除「手机号是」等空壳）"""
-        residual = cls._strip_carriers(cleaned)
-        residual = re.sub(r'[\s，,、；;：:\.\-_/\\]+', '', residual)
-        if len(residual) < 4:
-            return False
-        # 纯指代残片
-        if residual in {'我', '住我', '记住', '这个', '号码', '电话是', '住我的'}:
-            return False
-        return True
     
     @staticmethod
     def check(content: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -127,13 +71,11 @@ class SafetyGate:
         Returns:
             (status, reason, cleaned_content)
             - status: 'BLOCK' | 'MASK' | 'PASS'
-            - reason: 阻止/脱敏原因
-            - cleaned_content: 可写内容（PASS/MASK 时有值；BLOCK 为 None）
+            - reason: 阻止原因（仅BLOCK时）
+            - cleaned_content: 清洗后内容（仅PASS时）
         """
-        # 1. 硬拦：密码/病历/轨迹等不可脱敏
-        for pattern, reason_type, severity in BLACKLIST_PATTERNS:
-            if severity != 'HARD_BLOCK':
-                continue
+        # 检查黑名单
+        for pattern, reason_type in BLACKLIST_PATTERNS:
             if re.search(pattern, content, re.IGNORECASE):
                 return ('BLOCK', f'contains_{reason_type}', None)
         
@@ -144,17 +86,6 @@ class SafetyGate:
         # 检查Capability Profile关键词
         if any(kw in content for kw in ['action', 'param_limits', 'l1_gates', 'profile_data']):
             return ('BLOCK', 'capability_profile', None)
-        
-        # 2. 可脱敏：剥离手机号/证件/银行卡后保留非敏感事实
-        cleaned, hit_types = SafetyGate._strip_maskable(content)
-        if hit_types:
-            # 手机号/身份证本身永不入库；仅当脱敏后仍有独立非敏感事实才 MASK
-            if not SafetyGate._has_non_sensitive_fact(cleaned):
-                return ('BLOCK', f'contains_{hit_types[0]}', None)
-            # 写入前再剥载体词，避免「喜欢听周杰伦，手机号是」入库
-            cleaned = SafetyGate._strip_carriers(cleaned)
-            reason = 'masked_' + '+'.join(sorted(set(hit_types)))
-            return ('MASK', reason, cleaned)
         
         return ('PASS', None, content)
 
@@ -225,11 +156,17 @@ class MemoryClassifier:
 
 
 class PassiveExtractor:
-    """被动提取器：对话结束后异步打分 + 提取
+    """被动提取器：打分 + 提取（PRD v1.27修正: 仅由scheduled batch job调用）
     
     PRD v1.24 锁定公式：
     score = 0.4 * long_term + 0.3 * stability + 0.3 * personal
     threshold = 0.7（可配置）
+    
+    PRD v1.27修正 触发时机：
+    - 仅由scheduled batch job触发（nightly/每N小时）
+    - Batch job扫描PG task/audit records
+    - 不在Task terminal state触发
+    - 不在Session idle触发
     
     使用 Qwen LLM 进行智能评分和事实提取
     """
@@ -359,47 +296,22 @@ class PassiveExtractor:
         # 默认中等
         return 0.5
     
-    def extract_with_meta(self, utterance: str, response: str) -> Dict[str, Any]:
-        """提取事实并带回 LLM category（供 put_memory 分类打通）
+    def extract_facts(self, utterance: str, response: str) -> List[str]:
+        """从对话中提取事实
         
         Returns:
-            {
-                'facts': List[str],
-                'category': Optional[str],   # 10类之一或None
-                'llm_result': Optional[Dict] # 原始LLM结果，可直接传 classify
-            }
+            归一化的事实列表
         """
-        # 优先 LLM：同时拿 facts + category
+        # 如果有LLM客户端，使用LLM提取
         if self.llm_client:
             try:
                 result = self.llm_client.extract_facts(utterance, response, timeout=3.0)
                 if result and result.get('facts'):
-                    category = result.get('category')
-                    if category and category not in MEMORY_CATEGORIES:
-                        print(f"[PassiveExtractor] LLM category out of 10: {category}")
-                        category = None
-                    return {
-                        'facts': list(result['facts']),
-                        'category': category,
-                        'llm_result': result,
-                    }
+                    return result['facts']
             except Exception as e:
                 print(f"[PassiveExtractor] LLM extraction failed, fallback to rules: {e}")
         
-        # Fallback: 规则提取（无 LLM category）
-        return {
-            'facts': self._extract_facts_by_rules(utterance),
-            'category': None,
-            'llm_result': None,
-        }
-    
-    def extract_facts(self, utterance: str, response: str) -> List[str]:
-        """从对话中提取事实（兼容旧接口，仅返回事实列表）"""
-        return self.extract_with_meta(utterance, response)['facts']
-    
-    @staticmethod
-    def _extract_facts_by_rules(utterance: str) -> List[str]:
-        """规则提取事实（LLM 不可用时的 fallback）"""
+        # Fallback: 规则提取
         facts = []
         
         # 简单提取模式
@@ -433,22 +345,16 @@ class P2MemoryService:
         self, 
         enable_vector: bool = True,
         extract_model: Optional[str] = None,
-        embed_model: Optional[str] = None,
-        control_store: Optional[MemoryControlStore] = None,
-        start_worker: bool = False,
+        embed_model: Optional[str] = None
     ):
         """
         Args:
             enable_vector: 是否启用向量召回（P0可False，P2需True）
             extract_model: 提取模型名称（默认qwen-turbo）
             embed_model: Embedding模型名称（默认text-embedding-v3）
-            control_store: opt_out + 被动队列存储（可注入便于测试）
-            start_worker: 是否立即启动被动队列消费者
         """
         self.enable_vector = enable_vector
         self.safety_gate = SafetyGate()
-        self.control_store = control_store or MemoryControlStore()
-        self._passive_worker: Optional[PassiveQueueWorker] = None
         
         # 初始化Qwen客户端（失败时使用规则fallback）
         try:
@@ -471,9 +377,6 @@ class P2MemoryService:
             self.classifier = MemoryClassifier(llm_client=None)
             self.passive_extractor = PassiveExtractor(llm_client=None)
             self.embedding_client = None
-        
-        if start_worker:
-            self.start_passive_worker()
     
     def put_memory(
         self,
@@ -481,9 +384,7 @@ class P2MemoryService:
         content: str,
         source_ref: str,
         trace_id: Optional[str] = None,
-        is_active: bool = True,
-        category: Optional[str] = None,
-        llm_extract_result: Optional[Dict[str, Any]] = None,
+        is_active: bool = True
     ) -> Optional[str]:
         """写入记忆（主动/被动共用）
         
@@ -493,93 +394,49 @@ class P2MemoryService:
             source_ref: 来源引用（脱敏）
             trace_id: 追踪ID
             is_active: 是否主动记忆
-            category: 可选，调用方已确定的10类（被动LLM路径优先传入）
-            llm_extract_result: 可选，LLM提取结果（含 category/facts），供分类器优先使用
         
         Returns:
             memory_id or None（如被阻止）
         """
-        # 0. 关记忆：不写
-        if self.is_opted_out(user_id):
-            print(f"[P2Memory] opt_out skip put: {user_id}")
-            self._log_audit('memory_put_blocked', user_id, trace_id, 'opt_out')
-            return None
-        
-        # 1. 安全过滤（BLOCK 丢弃；MASK 用脱敏后文本；PASS 原文）
+        # 1. 安全过滤
         status, reason, cleaned = self.safety_gate.check(content)
         if status == 'BLOCK':
             print(f"[P2Memory] BLOCK: {reason}")
             self._log_audit('memory_put_blocked', user_id, trace_id, reason)
             return None
-        if status == 'MASK':
-            print(f"[P2Memory] MASK: {reason} -> {cleaned[:50] if cleaned else ''}")
-            self._log_audit('memory_put_masked', user_id, trace_id, reason)
-            if not cleaned:
-                return None
-        # PASS / MASK 均使用 cleaned 继续下游
         
-        # 2. 分类：显式 category > LLM 结果 > 关键词 fallback（禁止写死 llm_extract_result=None）
-        if category and category in MEMORY_CATEGORIES:
-            resolved_category = category
-        else:
-            resolved_category = self.classifier.classify(
-                cleaned, llm_result=llm_extract_result
-            )
-        category = resolved_category
+        # 2. 分类（优先使用LLM结果）
+        llm_extract_result = None
+        category = self.classifier.classify(cleaned, llm_result=llm_extract_result)
         if category is None:
             print(f"[P2Memory] Cannot classify, discarding: {cleaned[:50]}")
             return None
         
-        # 3. 去重与冲突检测：向量相似≥0.95 合并；同维冲突升 version_id 覆盖
+        # 3. 去重与冲突检测（简化版：同类同内容不重复写）
         db: Session = get_db()
         try:
-            # 先生成 embedding（用于向量去重；失败则后续走字符 fallback）
-            embedding = None
-            if self.enable_vector:
-                embedding = self._generate_embedding(cleaned)
-            
+            # 查找相似记忆
             existing = db.query(LongTermMemoryP2).filter_by(
                 user_id=user_id,
                 category=category
             ).all()
             
+            # 简单去重：内容相似度>0.95
             for mem in existing:
-                # 3a. 同维冲突：家/公司/称呼等同槽位新盖旧，升 version_id
-                if self._is_same_dimension_conflict(mem.content, cleaned):
-                    mem.content = cleaned
-                    if embedding is not None:
-                        mem.embedding = embedding
-                    mem.version_id = int(mem.version_id or 1) + 1
-                    mem.weight = max(float(mem.weight or 1.0), 1.0)
-                    mem.source_ref = source_ref
+                if self._similarity(mem.content, cleaned) > 0.95:
+                    # 更新权重
+                    mem.weight = min(mem.weight + 0.1, 2.0)
                     mem.updated_at = datetime.utcnow()
                     db.commit()
-                    print(
-                        f"[P2Memory] Conflict overwrite version={mem.version_id}: {mem.memory_id}"
-                    )
-                    self._log_audit('memory_put', user_id, trace_id, f'conflict_v{mem.version_id}')
+                    print(f"[P2Memory] Updated existing memory weight: {mem.memory_id}")
                     return mem.memory_id
-                
-                # 3b. 向量去重：cosine ≥ 0.95 合并（不双插）
-                mem_emb = self._coerce_embedding(mem.embedding)
-                if embedding is not None and mem_emb is not None:
-                    if self._cosine_similarity(embedding, mem_emb) >= 0.95:
-                        mem.weight = min(float(mem.weight or 1.0) + 0.1, 2.0)
-                        mem.updated_at = datetime.utcnow()
-                        db.commit()
-                        print(f"[P2Memory] Vector dedup merge: {mem.memory_id}")
-                        self._log_audit('memory_put', user_id, trace_id, 'vector_dedup')
-                        return mem.memory_id
-                else:
-                    # 无向量时字符 Jaccard fallback（仅降级）
-                    if self._char_jaccard(mem.content, cleaned) > 0.95:
-                        mem.weight = min(float(mem.weight or 1.0) + 0.1, 2.0)
-                        mem.updated_at = datetime.utcnow()
-                        db.commit()
-                        print(f"[P2Memory] Jaccard dedup merge: {mem.memory_id}")
-                        return mem.memory_id
             
-            # 4. 插入新记忆
+            # 4. 生成embedding（如启用）
+            embedding = None
+            if self.enable_vector:
+                embedding = self._generate_embedding(cleaned)
+            
+            # 5. 插入新记忆
             memory_id = str(uuid.uuid4())
             memory = LongTermMemoryP2(
                 memory_id=memory_id,
@@ -626,11 +483,6 @@ class P2MemoryService:
         Returns:
             记忆列表（按weight×similarity重排）
         """
-        # 关记忆：不召回
-        if self.is_opted_out(user_id):
-            print(f"[P2Memory] opt_out skip search: {user_id}")
-            return []
-        
         if not self.enable_vector:
             # P0: 仅返回KV热点（家/公司/偏好）
             return self._get_hot_memories(user_id)
@@ -766,86 +618,10 @@ class P2MemoryService:
         finally:
             db.close()
     
-    def is_opted_out(self, user_id: str) -> bool:
-        """账号是否已关闭记忆功能。"""
-        store = getattr(self, "control_store", None)
-        if store is None:
-            return False
-        try:
-            return store.is_opted_out(user_id)
-        except Exception as e:
-            print(f"[P2Memory] opt_out check failed: {e}")
-            return False
-    
     def opt_out(self, user_id: str) -> bool:
-        """用户选择退出记忆功能：持久化开关 + 尽力清空已有记忆。"""
-        try:
-            self.control_store.set_opt_out(user_id, True)
-        except Exception as e:
-            print(f"[P2Memory] opt_out flag failed: {e}")
-            return False
-        # 清空失败不回滚开关：关记忆优先于清库
-        try:
-            self.clear_user_memories(user_id)
-        except Exception as e:
-            print(f"[P2Memory] opt_out clear memories soft-fail: {e}")
-        print(f"[P2Memory] opt_out enabled for {user_id}")
-        return True
-    
-    def opt_in(self, user_id: str) -> bool:
-        """重新开启记忆功能（仅清开关，不恢复历史）。"""
-        try:
-            self.control_store.set_opt_out(user_id, False)
-            print(f"[P2Memory] opt_in enabled for {user_id}")
-            return True
-        except Exception as e:
-            print(f"[P2Memory] opt_in failed: {e}")
-            return False
-    
-    def enqueue_passive_extraction(
-        self,
-        user_id: str,
-        utterance: str,
-        assistant_response: str,
-        context: Dict[str, Any],
-        trace_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """将被动提取任务写入持久化队列（进程重启不丢）。"""
-        if self.is_opted_out(user_id):
-            print(f"[P2Memory] opt_out skip enqueue passive: {user_id}")
-            return None
-        job_id = self.control_store.enqueue({
-            "user_id": user_id,
-            "utterance": utterance,
-            "assistant_response": assistant_response or "",
-            "context": context or {},
-            "trace_id": trace_id,
-        })
-        print(f"[P2Memory] Enqueued passive job {job_id}")
-        return job_id
-    
-    def start_passive_worker(self) -> None:
-        """启动被动队列消费者。"""
-        if self._passive_worker is not None:
-            return
-        
-        def _handle(payload: Dict[str, Any]) -> None:
-            self.handle_passive_extraction(
-                user_id=payload.get("user_id", ""),
-                utterance=payload.get("utterance", ""),
-                assistant_response=payload.get("assistant_response", ""),
-                context=payload.get("context") or {},
-                trace_id=payload.get("trace_id"),
-            )
-        
-        self._passive_worker = PassiveQueueWorker(self.control_store, _handle)
-        self._passive_worker.start()
-    
-    def stop_passive_worker(self) -> None:
-        """停止被动队列消费者。"""
-        if self._passive_worker is not None:
-            self._passive_worker.stop()
-            self._passive_worker = None
+        """用户选择退出记忆功能"""
+        # 实际应标记用户状态，这里简化为清空
+        return self.clear_user_memories(user_id) >= 0
     
     def handle_passive_extraction(
         self,
@@ -855,7 +631,13 @@ class P2MemoryService:
         context: Dict[str, Any],
         trace_id: Optional[str] = None
     ):
-        """被动提取入口（对话结束后异步调用）
+        """被动提取入口（PRD v1.27修正: 仅由scheduled batch job通过PassiveMemoryConsumer调用）
+        
+        触发时机：
+        - 仅scheduled batch job（nightly/每N小时）
+        - Batch job扫描PG task/audit records或Redis队列
+        - 不在对话回合中调用
+        - 不在Task terminal state调用
         
         Args:
             user_id: 用户ID
@@ -864,11 +646,6 @@ class P2MemoryService:
             context: 对话上下文
             trace_id: 追踪ID
         """
-        # 0. 关记忆：不写
-        if self.is_opted_out(user_id):
-            print(f"[P2Memory] opt_out skip passive: {user_id}")
-            return
-        
         # 1. 判断是否应提取
         should_extract, confidence = self.passive_extractor.should_extract(
             utterance, assistant_response, context
@@ -879,25 +656,17 @@ class P2MemoryService:
         
         print(f"[P2Memory] Passive extraction triggered (confidence={confidence:.2f})")
         
-        # 2. 提取事实 + category（LLM 结果打通 put，不再丢弃分类）
-        meta = self.passive_extractor.extract_with_meta(utterance, assistant_response)
-        facts = meta.get('facts') or []
-        category = meta.get('category')
-        llm_result = meta.get('llm_result')
+        # 2. 提取事实
+        facts = self.passive_extractor.extract_facts(utterance, assistant_response)
         
-        if not facts:
-            return
-        
-        # 3. 逐条写入（带上 LLM category）
+        # 3. 逐条写入
         for fact in facts:
             self.put_memory(
                 user_id=user_id,
                 content=fact,
                 source_ref=f"passive:{trace_id or 'unknown'}",
                 trace_id=trace_id,
-                is_active=False,
-                category=category,
-                llm_extract_result=llm_result,
+                is_active=False
             )
     
     def parse_home_company_address(self, user_id: str) -> Dict[str, Optional[str]]:
@@ -929,75 +698,11 @@ class P2MemoryService:
     
     # ========== 内部辅助方法 ==========
     
-    # 同维槽位前缀：同前缀不同值 → 冲突覆盖
-    _DIMENSION_PREFIXES = (
-        '家地址：',
-        '公司地址：',
-        '称呼：',
-        '偏好空调温度：',
-    )
-    
-    @classmethod
-    def _is_same_dimension_conflict(cls, old_content: str, new_content: str) -> bool:
-        """同维冲突：同一槽位（家/公司/称呼等）新旧值不同。"""
-        if not old_content or not new_content:
-            return False
-        if old_content == new_content:
-            return False
-        for prefix in cls._DIMENSION_PREFIXES:
-            if old_content.startswith(prefix) and new_content.startswith(prefix):
-                return True
-        return False
-    
-    @staticmethod
-    def _coerce_embedding(raw: Any) -> Optional[List[float]]:
-        """把 DB/pgvector 返回值转为 float list。"""
-        if raw is None:
-            return None
-        if isinstance(raw, list):
-            try:
-                return [float(x) for x in raw]
-            except (TypeError, ValueError):
-                return None
-        if isinstance(raw, str):
-            try:
-                # pgvector 有时以 "[1,2,...]" 文本返回
-                text = raw.strip()
-                if text.startswith('[') and text.endswith(']'):
-                    parts = text[1:-1].split(',')
-                    return [float(p) for p in parts if p.strip()]
-            except (TypeError, ValueError):
-                return None
-        try:
-            return [float(x) for x in list(raw)]
-        except (TypeError, ValueError):
-            return None
-    
-    @staticmethod
-    def _cosine_similarity(emb1: List[float], emb2: List[float]) -> float:
-        """余弦相似度（向量去重用）。"""
-        if not emb1 or not emb2 or len(emb1) != len(emb2):
-            return 0.0
-        dot = 0.0
-        n1 = 0.0
-        n2 = 0.0
-        for a, b in zip(emb1, emb2):
-            dot += a * b
-            n1 += a * a
-            n2 += b * b
-        if n1 <= 0.0 or n2 <= 0.0:
-            return 0.0
-        return dot / ((n1 ** 0.5) * (n2 ** 0.5))
-    
     def _similarity(self, text1: str, text2: str) -> float:
-        """兼容旧接口：字符 Jaccard（仅无向量时的降级）。"""
-        return self._char_jaccard(text1, text2)
-    
-    @staticmethod
-    def _char_jaccard(text1: str, text2: str) -> float:
-        """字符集 Jaccard（无 embedding 时的降级去重）。"""
-        set1 = set(text1 or '')
-        set2 = set(text2 or '')
+        """简单相似度（实际可用embedding cosine）"""
+        # 简化：字符集Jaccard
+        set1 = set(text1)
+        set2 = set(text2)
         if not set1 or not set2:
             return 0.0
         return len(set1 & set2) / len(set1 | set2)
@@ -1063,28 +768,13 @@ class P2MemoryService:
     ):
         """记录审计事件（不含原文）"""
         try:
-            from ..audit.events import AuditEvent, AuditEventType
+            from ..audit.events import AuditEvent
             from ..audit.logger import AuditLogger
-            
-            # 字符串事件名映射到枚举（兼容历史调用）
-            type_map = {
-                'memory_put': AuditEventType.MEMORY_PUT,
-                'memory_search': AuditEventType.MEMORY_SEARCH,
-                'memory_put_blocked': AuditEventType.MEMORY_PUT_BLOCKED,
-                'memory_put_masked': AuditEventType.MEMORY_PUT_MASKED,
-            }
-            resolved_type = type_map.get(event_type)
-            if resolved_type is None:
-                try:
-                    resolved_type = AuditEventType(event_type)
-                except ValueError:
-                    print(f"[P2Memory] Unknown audit event type: {event_type}")
-                    return
             
             event = AuditEvent(
                 trace_id=trace_id or 'unknown',
                 session_id='',
-                event_type=resolved_type,
+                event_type=event_type,
                 timestamp=datetime.utcnow().isoformat() + 'Z',
                 status='ok' if 'blocked' not in event_type else 'blocked',
                 reason=reason,

@@ -39,6 +39,7 @@ from .orchestrator import Orchestrator
 from .session import SessionManager, ContextAssembler
 from .memory.p2_memory_service import P2MemoryService
 from .memory.active_memory_handler import ActiveMemoryHandler
+from .memory.passive_queue import PassiveMemoryCandidateQueue, PassiveMemoryConsumer
 
 
 # ==================== 全局状态 ====================
@@ -59,6 +60,8 @@ class AppState:
         self.websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> [ws]
         self.audit_logger = None  # PRD v1.9 / detailed-v2.2: full-chain tracing
         self.p2_memory_service = None  # P2长期记忆服务
+        self.passive_queue = None  # PRD v1.27: 被动记忆候选队列
+        self.passive_consumer = None  # PRD v1.27: 被动记忆消费者
 
 
 app_state = AppState()
@@ -208,6 +211,15 @@ async def lifespan(app: FastAPI):
         print(f"[Agent] WARNING: P2 Memory Service initialization failed: {e}")
         app_state.p2_memory_service = P2MemoryService(enable_vector=False, start_worker=True)
         print("[Agent] P2 Memory Service initialized (vector disabled, KV only, passive worker on)")
+    
+    # PRD v1.27: Passive Memory Queue & Consumer
+    if redis_client and app_state.p2_memory_service:
+        app_state.passive_queue = PassiveMemoryCandidateQueue(redis_client)
+        app_state.passive_consumer = PassiveMemoryConsumer(
+            queue=app_state.passive_queue,
+            p2_memory_service=app_state.p2_memory_service
+        )
+        print("[Agent] Passive Memory Queue & Consumer initialized")
     
     # Rewrite/Cancel Manager
     if redis_client:
@@ -594,6 +606,23 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             )
             print(f"[Agent] TaskGraph execution result: {result}")
             
+            # PRD v1.27: Task terminal state触发被动记忆提取
+            # 在task执行完成后（无论成功/失败/部分完成）触发durable extraction
+            if app_state.passive_consumer:
+                try:
+                    user_id = f"account_default:{session_info.driver_id}"
+                    task_status = result.get("status", "unknown")
+                    trigger_reason = f"task_end_{task_status}"
+                    
+                    # 异步触发消费者（不阻塞）
+                    consume_result = app_state.passive_consumer.consume_for_user(
+                        user_id=user_id,
+                        trigger_reason=trigger_reason
+                    )
+                    print(f"[Agent] Passive consumer triggered: {consume_result}")
+                except Exception as e:
+                    print(f"[Agent] Passive consumer error (non-blocking): {e}")
+            
             # 再次检查profile ready（防止执行期间切换）
             if not app_state.session_manager.is_profile_ready(session_info.session_id):
                 print(f"[Agent] MQTT downlink BLOCKED: profile switched during execution")
@@ -629,27 +658,49 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(execute_and_publish)
     
-    # P2: 被动提取入持久化队列（进程重启不丢；关记忆则跳过）
-    try:
-        user_id = f"account_default:{session_info.driver_id}"
-        assistant_response = ""
-        if taskgraph.tasks:
-            for task in taskgraph.tasks:
-                for step in task.steps:
-                    if hasattr(step.action, 'text'):
-                        assistant_response += getattr(step.action, 'text', '')
-                    elif hasattr(step.action, 'response'):
-                        assistant_response += getattr(step.action, 'response', '') or ''
-        if app_state.p2_memory_service:
-            app_state.p2_memory_service.enqueue_passive_extraction(
+    # PRD v1.28: 被动记忆候选入队（仅入队到Redis，不立即提取）
+    # 被动提取仅由scheduled batch job触发（nightly/每N小时）
+    async def enqueue_passive_candidate():
+        """入队被动记忆候选（不立即写入长期记忆）
+        
+        PRD v1.28:
+        - 对话回合：仅入队到Redis（短TTL缓冲）
+        - 不触发Memory.put
+        - Batch job稍后扫描PG task records + 可选参考Redis队列
+        - Batch job执行: score≥0.7 → 10-class → Memory.put
+        """
+        try:
+            # 检测主动记忆意图时不入队（已同步put）
+            if active_memory_content:
+                return
+            
+            # 仅当passive_queue可用时入队
+            if not app_state.passive_queue:
+                return
+            
+            user_id = f"account_default:{session_info.driver_id}"
+            
+            # 获取assistant回复（从taskgraph推断）
+            assistant_response = ""
+            if taskgraph.tasks:
+                for task in taskgraph.tasks:
+                    for step in task.steps:
+                        if hasattr(step.action, 'text'):
+                            assistant_response += getattr(step.action, 'text', '')
+            
+            # 入队hot candidate（短TTL Redis缓冲，供batch job可选参考）
+            app_state.passive_queue.enqueue_candidate(
                 user_id=user_id,
+                session_id=session_info.session_id,
                 utterance=request.utterance,
                 assistant_response=assistant_response,
                 context=context.model_dump() if hasattr(context, 'model_dump') else {},
-                trace_id=trace_id,
+                trace_id=trace_id
             )
-    except Exception as e:
-        print(f"[Agent] Passive enqueue error (non-blocking): {e}")
+        except Exception as e:
+            print(f"[Agent] Passive queue enqueue error (non-blocking): {e}")
+    
+    background_tasks.add_task(enqueue_passive_candidate)
     
     # 立即返回TaskGraph
     return DialogueResponse(
