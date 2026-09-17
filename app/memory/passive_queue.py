@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+<<<<<<< HEAD
 """被动记忆写入持久化队列（SQLite）
 
 BackgroundTasks 进程挂了会丢任务；本队列落盘 + 重试 + 死信，重启后可继续消费。
@@ -264,6 +265,7 @@ class PassiveQueueWorker:
         self._thread.start()
         print("[PassiveQueue] Worker started")
 
+
     def stop(self, timeout: float = 2.0) -> None:
         self._stop.set()
         if self._thread:
@@ -283,3 +285,4 @@ class PassiveQueueWorker:
             except Exception as e:
                 status = self.store.fail(job_id, str(e))
                 print(f"[PassiveQueue] Job {job_id} failed -> {status}: {e}")
+

@@ -39,6 +39,7 @@ from .orchestrator import Orchestrator
 from .session import SessionManager, ContextAssembler
 from .memory.p2_memory_service import P2MemoryService
 from .memory.active_memory_handler import ActiveMemoryHandler
+from .memory.passive_queue import PassiveMemoryCandidateQueue, PassiveMemoryConsumer
 
 
 # ==================== 全局状态 ====================
@@ -59,6 +60,8 @@ class AppState:
         self.websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> [ws]
         self.audit_logger = None  # PRD v1.9 / detailed-v2.2: full-chain tracing
         self.p2_memory_service = None  # P2长期记忆服务
+        self.passive_queue = None  # PRD v1.27: 被动记忆候选队列
+        self.passive_consumer = None  # PRD v1.27: 被动记忆消费者
 
 
 app_state = AppState()
@@ -208,6 +211,15 @@ async def lifespan(app: FastAPI):
         print(f"[Agent] WARNING: P2 Memory Service initialization failed: {e}")
         app_state.p2_memory_service = P2MemoryService(enable_vector=False, start_worker=True)
         print("[Agent] P2 Memory Service initialized (vector disabled, KV only, passive worker on)")
+    
+    # PRD v1.27: Passive Memory Queue & Consumer
+    if redis_client and app_state.p2_memory_service:
+        app_state.passive_queue = PassiveMemoryCandidateQueue(redis_client)
+        app_state.passive_consumer = PassiveMemoryConsumer(
+            queue=app_state.passive_queue,
+            p2_memory_service=app_state.p2_memory_service
+        )
+        print("[Agent] Passive Memory Queue & Consumer initialized")
     
     # Rewrite/Cancel Manager
     if redis_client:
@@ -594,6 +606,10 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
             )
             print(f"[Agent] TaskGraph execution result: {result}")
             
+            # PRD v1.28: Task terminal state只写流水（audit/task store），不触发Memory.put
+            # 被动记忆提取由scheduled batch job触发（nightly/每N小时），不在task-end立即触发
+            # Task已入队到持久化队列（SQLite），batch job稍后扫描处理
+            
             # 再次检查profile ready（防止执行期间切换）
             if not app_state.session_manager.is_profile_ready(session_info.session_id):
                 print(f"[Agent] MQTT downlink BLOCKED: profile switched during execution")
@@ -629,20 +645,27 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(execute_and_publish)
     
-    # P2: 被动提取入持久化队列（进程重启不丢；关记忆则跳过）
+    # PRD v1.28: 被动记忆候选入持久化队列（进程重启不丢；关记忆则跳过）
+    # 仅入队，NOT immediate Memory.put，由scheduled batch job触发提取
     try:
-        user_id = f"account_default:{session_info.driver_id}"
-        assistant_response = ""
-        if taskgraph.tasks:
-            for task in taskgraph.tasks:
-                for step in task.steps:
-                    if hasattr(step.action, 'text'):
-                        assistant_response += getattr(step.action, 'text', '')
-                    elif hasattr(step.action, 'response'):
-                        assistant_response += getattr(step.action, 'response', '') or ''
-        if app_state.p2_memory_service:
+        # 检测主动记忆意图时不入队（已同步put）
+        if active_memory_content:
+            pass  # 主动记忆已同步put，跳过被动入队
+        elif app_state.p2_memory_service:
+            user_id = f"account_default:{session_info.driver_id}"
+            assistant_response = ""
+            if taskgraph.tasks:
+                for task in taskgraph.tasks:
+                    for step in task.steps:
+                        if hasattr(step.action, 'text'):
+                            assistant_response += getattr(step.action, 'text', '')
+                        elif hasattr(step.action, 'response'):
+                            assistant_response += getattr(step.action, 'response', '') or ''
+            
+            # 入队到持久化队列（SQLite）
             app_state.p2_memory_service.enqueue_passive_extraction(
                 user_id=user_id,
+                session_id=session_info.session_id,
                 utterance=request.utterance,
                 assistant_response=assistant_response,
                 context=context.model_dump() if hasattr(context, 'model_dump') else {},
