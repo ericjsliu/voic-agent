@@ -40,6 +40,7 @@ from .session import SessionManager, ContextAssembler
 from .memory.p2_memory_service import P2MemoryService
 from .memory.active_memory_handler import ActiveMemoryHandler
 from .memory.passive_queue import PassiveMemoryCandidateQueue, PassiveMemoryConsumer
+from .playbook import PlaybookStore
 
 
 # ==================== 全局状态 ====================
@@ -62,6 +63,7 @@ class AppState:
         self.p2_memory_service = None  # P2长期记忆服务
         self.passive_queue = None  # PRD v1.28/v1.34: 被动记忆候选队列（仅入队，不立即提取）
         self.passive_consumer = None  # PRD v1.28/v1.34: 被动记忆消费者（仅由scheduled batch job调用）
+        self.playbook_store = None  # PRD v1.37 Feature 3: ACE离线Playbook存储
 
 
 app_state = AppState()
@@ -223,6 +225,18 @@ async def lifespan(app: FastAPI):
         )
         print("[Agent] Passive Memory Queue & Consumer initialized")
     
+    # PRD v1.37 Feature 3: Playbook Store (read-only online)
+    playbook_backend = os.getenv("PLAYBOOK_BACKEND", "file")
+    try:
+        if playbook_backend == "postgres" and app_state.pg_store:
+            app_state.playbook_store = PlaybookStore(backend="postgres", pg_store=app_state.pg_store)
+            print("[Agent] Playbook Store initialized (PostgreSQL backend)")
+        else:
+            app_state.playbook_store = PlaybookStore(backend="file")
+            print("[Agent] Playbook Store initialized (File backend)")
+    except Exception as e:
+        print(f"[Agent] WARNING: Playbook Store initialization failed: {e}")
+    
     # Rewrite/Cancel Manager
     if redis_client:
         app_state.rewrite_cancel_manager = RewriteCancelManager(redis_client)
@@ -261,7 +275,7 @@ async def lifespan(app: FastAPI):
         audit_logger=app_state.audit_logger
     )
     
-    # Orchestrator (P0 exit #5: pass audit_logger)
+    # Orchestrator (P0 exit #5: pass audit_logger, PRD v1.37: redis_client + pg_store for idempotency & checkpoint)
     app_state.orchestrator = Orchestrator(
         vehicle_adapter=app_state.adapters["vehicle"],
         nav_adapter=app_state.adapters["navigation"],
@@ -269,7 +283,9 @@ async def lifespan(app: FastAPI):
         calendar_adapter=app_state.adapters["calendar"],
         knowledge_adapter=app_state.adapters["knowledge"],
         chitchat_adapter=app_state.adapters["chitchat"],
-        audit_logger=app_state.audit_logger
+        audit_logger=app_state.audit_logger,
+        redis_client=redis_client,
+        pg_store=app_state.pg_store
     )
     
     # MQTT Client
@@ -535,13 +551,14 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
         event_type=AuditEventType.PLANNER_START
     )
     
-    # 规划TaskGraph（带能力档案过滤，会发出unsupported audit events）
+    # 规划TaskGraph（带能力档案过滤，会发出unsupported audit events, PRD v1.37: playbook_store注入）
     taskgraph: TaskGraph = await app_state.planner.plan(
         user_utterance=request.utterance,
         context=context,
         capability_profile=capability_profile,
         trace_id=trace_id,
-        session_id=session_info.session_id
+        session_id=session_info.session_id,
+        playbook_store=app_state.playbook_store
     )
     
     # Inject trace_id into TaskGraph (if not already set)
@@ -809,6 +826,138 @@ async def get_trace_events(trace_id: str):
         "trace_id": trace_id,
         "event_count": len(events),
         "events": [e.model_dump(exclude_none=True) for e in events]
+    }
+
+
+# ==================== PRD v1.37 Feature 2: Checkpoint/Resume API ====================
+
+@app.post("/session/{session_id}/resume")
+async def resume_session(session_id: str, trace_id: Optional[str] = None):
+    """从检查点恢复会话执行（PRD v1.37 Feature 2）
+    
+    用于重连/网络中断后继续执行，而非从头重新规划。
+    """
+    if not app_state.orchestrator.checkpoint_manager:
+        raise HTTPException(status_code=503, detail="检查点管理器未初始化")
+    
+    # 自定义writeback回调
+    async def writeback_callback(writeback):
+        await ws_manager.broadcast_to_session(
+            session_id,
+            {
+                "type": "writeback",
+                "trace_id": writeback.trace_id,
+                "data": json_lib.loads(writeback.model_dump_json())
+            }
+        )
+    
+    result = await app_state.orchestrator.resume_from_checkpoint(
+        session_id=session_id,
+        trace_id=trace_id,
+        writeback_callback=writeback_callback
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="未找到可恢复的检查点")
+    
+    return {
+        "success": True,
+        "session_id": session_id,
+        "result": result
+    }
+
+
+@app.get("/session/{session_id}/checkpoints")
+async def list_checkpoints(session_id: str):
+    """列出会话的所有检查点（PRD v1.37 Feature 2）"""
+    if not app_state.orchestrator.checkpoint_manager:
+        raise HTTPException(status_code=503, detail="检查点管理器未初始化")
+    
+    checkpoints = app_state.orchestrator.checkpoint_manager.list_checkpoints(session_id)
+    
+    return {
+        "session_id": session_id,
+        "count": len(checkpoints),
+        "checkpoints": checkpoints
+    }
+
+
+# ==================== PRD v1.37 Feature 3: Playbook API (Read-Only Online) ====================
+
+@app.get("/playbook/snapshot")
+async def get_playbook_snapshot():
+    """获取Playbook快照（在线只读路径 - PRD v1.37 Feature 3）"""
+    if not app_state.playbook_store:
+        raise HTTPException(status_code=503, detail="Playbook Store未初始化")
+    
+    snapshot = app_state.playbook_store.load_snapshot()
+    
+    if not snapshot:
+        return {
+            "message": "暂无Playbook快照",
+            "version": None,
+            "entries": []
+        }
+    
+    return snapshot.model_dump()
+
+
+@app.get("/playbook/section/{section}")
+async def get_playbook_by_section(section: str, min_confidence: float = 0.0):
+    """按章节获取Playbook条目（在线只读路径 - PRD v1.37 Feature 3）
+    
+    Args:
+        section: 章节名称 (vehicle_control, navigation, media, safety, user_preferences, troubleshooting)
+        min_confidence: 最小置信度阈值 (0.0-1.0)
+    """
+    if not app_state.playbook_store:
+        raise HTTPException(status_code=503, detail="Playbook Store未初始化")
+    
+    from .playbook.store import PlaybookSection
+    
+    try:
+        section_enum = PlaybookSection(section)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"无效的章节: {section}")
+    
+    entries = app_state.playbook_store.get_entries_by_section(section_enum, min_confidence)
+    
+    return {
+        "section": section,
+        "min_confidence": min_confidence,
+        "count": len(entries),
+        "entries": [e.model_dump() for e in entries]
+    }
+
+
+@app.get("/playbook/search")
+async def search_playbook(q: str, section: Optional[str] = None, limit: int = 5):
+    """搜索Playbook条目（在线只读路径 - PRD v1.37 Feature 3）
+    
+    Args:
+        q: 搜索关键词
+        section: 限制章节（可选）
+        limit: 返回数量
+    """
+    if not app_state.playbook_store:
+        raise HTTPException(status_code=503, detail="Playbook Store未初始化")
+    
+    from .playbook.store import PlaybookSection
+    
+    section_enum = None
+    if section:
+        try:
+            section_enum = PlaybookSection(section)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"无效的章节: {section}")
+    
+    entries = app_state.playbook_store.search_entries(q, section_enum, limit)
+    
+    return {
+        "query": q,
+        "section": section,
+        "count": len(entries),
+        "entries": [e.model_dump() for e in entries]
     }
 
 

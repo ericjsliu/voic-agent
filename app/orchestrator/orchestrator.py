@@ -17,6 +17,8 @@ from ..adapters import (
     KnowledgeAdapter,
     ChitchatAdapter,
 )
+from .idempotency import IdempotencyManager
+from .checkpoint import CheckpointManager
 
 
 class StepStatus(str, Enum):
@@ -66,7 +68,9 @@ class Orchestrator:
         knowledge_adapter: KnowledgeAdapter,
         chitchat_adapter: ChitchatAdapter,
         shadow_state: Optional[Dict[str, Any]] = None,
-        audit_logger=None
+        audit_logger=None,
+        redis_client=None,
+        pg_store=None
     ):
         self.adapters = {
             DomainType.VEHICLE: vehicle_adapter,
@@ -95,6 +99,12 @@ class Orchestrator:
         self.current_session_id: Optional[str] = None
         self.capability_profile = None  # set by main before execute
         self.item_names = None  # RAG 车型显示名，如 ["致享"]
+        
+        # PRD v1.37 Feature 1: 幂等性管理器
+        self.idempotency_manager = IdempotencyManager(redis_client) if redis_client else None
+        
+        # PRD v1.37 Feature 2: 检查点管理器
+        self.checkpoint_manager = CheckpointManager(redis_client, pg_store) if redis_client else None
     
     async def execute_taskgraph(
         self,
@@ -287,6 +297,25 @@ class Orchestrator:
         adapter = self.adapters[step.domain]
         
         try:
+            # PRD v1.37 Feature 1: 生成tool_use_id并检查幂等性
+            tool_use_id = None
+            if self.idempotency_manager and self.current_trace_id:
+                tool_use_id = self.idempotency_manager.generate_tool_use_id(
+                    self.current_trace_id,
+                    step.step_id
+                )
+                
+                # 检查是否已执行过（幂等性）
+                cached_result = self.idempotency_manager.get_cached_result(tool_use_id)
+                if cached_result:
+                    print(f"[Orchestrator] 幂等性命中: {step.step_id} (tool_use_id={tool_use_id})")
+                    # 使用缓存结果，不重新执行
+                    step_state.status = StepStatus(cached_result["status"])
+                    step_state.result = cached_result.get("result")
+                    if step_state.status == StepStatus.COMPLETED:
+                        self.task_states[task.task_id].completed_steps.add(step.step_id)
+                    return
+            
             # 检查动作级别
             action_level = getattr(step.action, "level", ActionLevel.L0)
             
@@ -347,6 +376,13 @@ class Orchestrator:
                 step_state.status = StepStatus.COMPLETED
                 step_state.result = result
                 self.task_states[task.task_id].completed_steps.add(step.step_id)
+                
+                # PRD v1.37 Feature 1: 缓存结果（幂等性）
+                if self.idempotency_manager and tool_use_id:
+                    self.idempotency_manager.cache_result(tool_use_id, {
+                        "status": step_state.status.value,
+                        "result": result
+                    })
                 if writeback_callback:
                     writeback = WritebackEnvelope(
                         task_id=task.task_id,
@@ -366,6 +402,13 @@ class Orchestrator:
                 step_state.status = StepStatus.COMPLETED
                 step_state.result = result
                 self.task_states[task.task_id].completed_steps.add(step.step_id)
+                
+                # PRD v1.37 Feature 1: 缓存结果（幂等性）
+                if self.idempotency_manager and tool_use_id:
+                    self.idempotency_manager.cache_result(tool_use_id, {
+                        "status": step_state.status.value,
+                        "result": result
+                    })
                 if writeback_callback:
                     spoken = (
                         result.get("answer")
@@ -399,10 +442,28 @@ class Orchestrator:
             step_state.result = result
             self.task_states[task.task_id].completed_steps.add(step.step_id)
             
+            # PRD v1.37 Feature 1: 缓存结果（幂等性）
+            if self.idempotency_manager and tool_use_id:
+                self.idempotency_manager.cache_result(tool_use_id, {
+                    "status": step_state.status.value,
+                    "result": result
+                })
+            
+            # PRD v1.37 Feature 2: 保存检查点
+            if self.checkpoint_manager and self.current_trace_id and self.current_session_id:
+                self._save_checkpoint()
+            
         except Exception as e:
             step_state.status = StepStatus.FAILED
             step_state.error = str(e)
             self.task_states[task.task_id].failed_steps.add(step.step_id)
+            
+            # PRD v1.37 Feature 1: 缓存错误结果（幂等性）
+            if self.idempotency_manager and tool_use_id:
+                self.idempotency_manager.cache_result(tool_use_id, {
+                    "status": step_state.status.value,
+                    "error": str(e)
+                })
     
     async def handle_writeback(self, writeback: WritebackEnvelope):
         """处理车辆写回"""
@@ -591,3 +652,139 @@ class Orchestrator:
         l2_graph = self.pending_l2_publish
         self.pending_l2_publish = None
         return l2_graph
+    
+    # ==================== PRD v1.37 Feature 2: 检查点管理 ====================
+    
+    def _save_checkpoint(self):
+        """保存当前执行状态到检查点"""
+        if not self.checkpoint_manager or not self.current_trace_id or not self.current_session_id:
+            return
+        
+        try:
+            # 序列化TaskGraph
+            taskgraph_dict = self.pending_downlink.model_dump() if self.pending_downlink else {}
+            
+            # 序列化StepStates
+            step_states_dict = {}
+            completed_steps = []
+            failed_steps = []
+            
+            for task_id, task_state in self.task_states.items():
+                for step_id, step_state in task_state.step_states.items():
+                    step_states_dict[step_id] = {
+                        "status": step_state.status.value,
+                        "result": step_state.result,
+                        "error": step_state.error,
+                        "retry_count": step_state.retry_count
+                    }
+                completed_steps.extend(task_state.completed_steps)
+                failed_steps.extend(task_state.failed_steps)
+            
+            # 保存检查点
+            self.checkpoint_manager.save_checkpoint(
+                session_id=self.current_session_id,
+                trace_id=self.current_trace_id,
+                taskgraph_dict=taskgraph_dict,
+                step_states=step_states_dict,
+                completed_steps=completed_steps,
+                failed_steps=failed_steps,
+                shadow_state=self.shadow_state
+            )
+            
+        except Exception as e:
+            print(f"[Orchestrator] 保存检查点失败: {e}")
+    
+    async def resume_from_checkpoint(
+        self,
+        session_id: str,
+        trace_id: Optional[str] = None,
+        writeback_callback: Optional[callable] = None
+    ) -> Optional[Dict[str, Any]]:
+        """从检查点恢复执行
+        
+        Args:
+            session_id: 会话ID
+            trace_id: 追踪ID（可选，不提供则恢复最近的）
+            writeback_callback: 写回回调
+            
+        Returns:
+            执行结果摘要，无检查点返回None
+        """
+        if not self.checkpoint_manager:
+            print("[Orchestrator] 检查点管理器未初始化")
+            return None
+        
+        # 加载检查点
+        checkpoint = self.checkpoint_manager.load_checkpoint(session_id, trace_id)
+        if not checkpoint:
+            print(f"[Orchestrator] 未找到检查点: {session_id}/{trace_id}")
+            return None
+        
+        print(f"[Orchestrator] 从检查点恢复: {checkpoint.trace_id}")
+        
+        try:
+            # 恢复TaskGraph
+            taskgraph = TaskGraph(**checkpoint.taskgraph)
+            self.pending_downlink = taskgraph
+            self.current_trace_id = checkpoint.trace_id
+            self.current_session_id = checkpoint.session_id
+            self.shadow_state = checkpoint.shadow_state
+            
+            # 恢复TaskStates
+            for task in taskgraph.tasks:
+                task_state = TaskState(task=task)
+                
+                for step in task.steps:
+                    step_state = StepState(step=step)
+                    
+                    # 恢复步骤状态
+                    if step.step_id in checkpoint.step_states:
+                        saved_state = checkpoint.step_states[step.step_id]
+                        step_state.status = StepStatus(saved_state["status"])
+                        step_state.result = saved_state.get("result")
+                        step_state.error = saved_state.get("error")
+                        step_state.retry_count = saved_state.get("retry_count", 0)
+                    
+                    task_state.step_states[step.step_id] = step_state
+                
+                task_state.completed_steps = set(checkpoint.completed_steps)
+                task_state.failed_steps = set(checkpoint.failed_steps)
+                self.task_states[task.task_id] = task_state
+            
+            # 继续执行未完成的任务
+            print(f"[Orchestrator] 继续执行: {len(checkpoint.completed_steps)}步已完成")
+            
+            execution_tasks = []
+            for task in taskgraph.tasks:
+                execution_tasks.append(
+                    self._execute_task(task, writeback_callback)
+                )
+            
+            results = await asyncio.gather(*execution_tasks, return_exceptions=True)
+            
+            # 汇总结果
+            summary = {
+                "resumed_from_checkpoint": True,
+                "taskgraph_id": taskgraph.session_id,
+                "trace_id": checkpoint.trace_id,
+                "timestamp": taskgraph.timestamp,
+                "task_results": {}
+            }
+            
+            for task, result in zip(taskgraph.tasks, results):
+                if isinstance(result, Exception):
+                    summary["task_results"][task.task_id] = {
+                        "status": "error",
+                        "error": str(result)
+                    }
+                else:
+                    summary["task_results"][task.task_id] = result
+            
+            # 清除检查点（任务完成）
+            self.checkpoint_manager.clear_checkpoint(session_id, checkpoint.trace_id)
+            
+            return summary
+            
+        except Exception as e:
+            print(f"[Orchestrator] 从检查点恢复失败: {e}")
+            return None

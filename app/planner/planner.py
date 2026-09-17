@@ -61,7 +61,8 @@ class Planner:
         self,
         user_utterance: str,
         context: DialogueContext,
-        trace_id: Optional[str] = None
+        trace_id: Optional[str] = None,
+        playbook_store=None
     ) -> TaskGraph:
         """生成任务图。
         
@@ -79,7 +80,7 @@ class Planner:
         # 1. LLM 先规划（有客户端才走；regex 不再抢先短路）
         if self.llm_client:
             try:
-                tg = await self._plan_with_llm(user_utterance, context, trace_id)
+                tg = await self._plan_with_llm(user_utterance, context, trace_id, playbook_store)
                 # 事后护栏：手册/日程不得掉闲聊；命令句被整句判闲聊时纠域
                 tg = await self._enforce_domain_guardrails(user_utterance, tg, context, trace_id)
                 return tg
@@ -93,7 +94,8 @@ class Planner:
         self,
         user_utterance: str,
         context: DialogueContext,
-        trace_id: str
+        trace_id: str,
+        playbook_store=None
     ) -> TaskGraph:
         """使用LLM生成TaskGraph（schema-constrained）
         
@@ -106,8 +108,8 @@ class Planner:
         # 构建系统提示
         system_prompt = self._build_system_prompt()
         
-        # 构建用户消息（含 P2 召回记忆，与 UI TopN 同源）
-        user_message = self._build_user_message(user_utterance, context)
+        # 构建用户消息（含 P2 召回记忆，与 UI TopN 同源，以及 PRD v1.37 Playbook上下文）
+        user_message = self._build_user_message(user_utterance, context, playbook_store)
         
         # 调用LLM (使用JSON mode如果支持)
         try:
@@ -412,18 +414,25 @@ class Planner:
             return ""
         return "用户长期记忆（仅供个性化规划，不得编造未列出的事实）：\n" + "\n".join(lines)
 
-    def _build_user_message(self, user_utterance: str, context: DialogueContext) -> str:
-        """构建发给 Planner LLM 的用户消息（含召回记忆）。"""
+    def _build_user_message(self, user_utterance: str, context: DialogueContext, playbook_store=None) -> str:
+        """构建发给 Planner LLM 的用户消息（含召回记忆和Playbook上下文）。"""
         memories = self._get_relevant_memories(context)
         memory_block = self.format_relevant_memories_for_prompt(memories)
         memory_section = f"\n- {memory_block}" if memory_block else "\n- 用户长期记忆：无"
+        
+        # PRD v1.37 Feature 3: 注入Playbook上下文（在线只读）
+        playbook_section = ""
+        if playbook_store:
+            playbook_context = self._build_playbook_context(user_utterance, playbook_store)
+            if playbook_context:
+                playbook_section = f"\n- Playbook参考：\n{playbook_context}"
 
         return f"""用户输入：{user_utterance}
 
 当前上下文：
 - 位置：{context.current_location}
 - 最近对话：{context.recent_utterances[-3:] if context.recent_utterances else []}
-- 车辆状态：{context.shadow_state}{memory_section}
+- 车辆状态：{context.shadow_state}{memory_section}{playbook_section}
 
 请分析用户意图，生成TaskGraph JSON。确保：
 1. 只使用系统提示列出的合法 domain/action（不要用已废弃的 ac_on、ac_set_temp）
@@ -433,7 +442,38 @@ class Planner:
 5. 手册/故障/如何使用必须 knowledge.query_manual，禁止 chitchat
 6. 依赖关系正确（depends_on）；独立任务可并行
 7. 若有长期记忆：闲聊/偏好/导航「家」「公司」等应优先使用记忆 content，不得忽略已列出的事实
+8. 若有Playbook参考：优先参考其中的规则和建议，避免常见错误
 """
+    
+    def _build_playbook_context(self, user_utterance: str, playbook_store) -> str:
+        """构建Playbook上下文字符串（PRD v1.37 Feature 3）
+        
+        从Playbook快照中搜索相关规则和建议，注入到规划器上下文。
+        
+        Args:
+            user_utterance: 用户话语
+            playbook_store: Playbook存储实例
+            
+        Returns:
+            Playbook上下文字符串
+        """
+        try:
+            # 搜索相关条目
+            entries = playbook_store.search_entries(user_utterance, section=None, limit=3)
+            
+            if not entries:
+                return ""
+            
+            # 构建上下文
+            lines = []
+            for entry in entries:
+                lines.append(f"  • [{entry.section.value}] {entry.content} (置信度: {entry.confidence_score:.2f})")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            print(f"[Planner] 构建Playbook上下文失败: {e}")
+            return ""
 
     def _build_system_prompt(self) -> str:
         """构建LLM系统提示"""
