@@ -225,11 +225,16 @@ class MemoryClassifier:
 
 
 class PassiveExtractor:
-    """被动提取器：对话结束后异步打分 + 提取
+    """被动提取器：打分 + 提取（PRD v1.27: 由Consumer触发，不在对话回合中直接调用）
     
     PRD v1.24 锁定公式：
     score = 0.4 * long_term + 0.3 * stability + 0.3 * personal
     threshold = 0.7（可配置）
+    
+    PRD v1.27 触发时机：
+    - Task terminal state (success/fail/cancel)
+    - Session idle timeout
+    - Scheduled consumer tick
     
     使用 Qwen LLM 进行智能评分和事实提取
     """
@@ -855,7 +860,12 @@ class P2MemoryService:
         context: Dict[str, Any],
         trace_id: Optional[str] = None
     ):
-        """被动提取入口（对话结束后异步调用）
+        """被动提取入口（PRD v1.27: 由PassiveMemoryConsumer触发，非对话回合直接调用）
+        
+        触发时机：
+        - Task terminal state (success/fail/cancel)
+        - Session idle timeout
+        - Scheduled consumer tick
         
         Args:
             user_id: 用户ID

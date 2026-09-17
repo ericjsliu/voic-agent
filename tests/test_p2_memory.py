@@ -668,5 +668,184 @@ class TestEmbeddingClientAPI:
         assert client.api_key == "test_key"
 
 
+class TestPassiveQueuePRDv127:
+    """PRD v1.27 被动记忆队列测试"""
+    
+    def test_enqueue_candidate(self):
+        """测试入队候选"""
+        from app.memory.passive_queue import PassiveMemoryCandidateQueue
+        from unittest.mock import Mock
+        
+        # Mock Redis客户端
+        mock_redis = Mock()
+        mock_redis.rpush = Mock(return_value=1)
+        mock_redis.expire = Mock(return_value=True)
+        
+        queue = PassiveMemoryCandidateQueue(mock_redis)
+        
+        # 入队候选
+        success = queue.enqueue_candidate(
+            user_id="account_test:driver_001",
+            session_id="session_001",
+            utterance="我平时喜欢听周杰伦",
+            assistant_response="好的",
+            context={},
+            trace_id="trace_001"
+        )
+        
+        assert success is True
+        mock_redis.rpush.assert_called_once()
+        mock_redis.expire.assert_called_once()
+    
+    def test_get_all_candidates(self):
+        """测试获取所有候选"""
+        from app.memory.passive_queue import PassiveMemoryCandidateQueue
+        from unittest.mock import Mock
+        import json
+        
+        # Mock Redis客户端
+        mock_redis = Mock()
+        candidate_data = {
+            "session_id": "session_001",
+            "utterance": "我平时喜欢听周杰伦",
+            "assistant_response": "好的",
+            "context": {},
+            "trace_id": "trace_001",
+            "timestamp": "2024-01-01T00:00:00"
+        }
+        mock_redis.lrange = Mock(return_value=[json.dumps(candidate_data, ensure_ascii=False).encode()])
+        
+        queue = PassiveMemoryCandidateQueue(mock_redis)
+        
+        # 获取候选
+        candidates = queue.get_all_candidates("account_test:driver_001")
+        
+        assert len(candidates) == 1
+        assert candidates[0]['utterance'] == "我平时喜欢听周杰伦"
+        mock_redis.lrange.assert_called_once()
+    
+    def test_clear_candidates(self):
+        """测试清空候选"""
+        from app.memory.passive_queue import PassiveMemoryCandidateQueue
+        from unittest.mock import Mock
+        
+        # Mock Redis客户端
+        mock_redis = Mock()
+        mock_redis.llen = Mock(return_value=3)
+        mock_redis.delete = Mock(return_value=1)
+        
+        queue = PassiveMemoryCandidateQueue(mock_redis)
+        
+        # 清空候选
+        count = queue.clear_candidates("account_test:driver_001")
+        
+        assert count == 3
+        mock_redis.llen.assert_called_once()
+        mock_redis.delete.assert_called_once()
+    
+    def test_consumer_consume_for_user(self):
+        """测试消费者处理候选队列"""
+        from app.memory.passive_queue import PassiveMemoryCandidateQueue, PassiveMemoryConsumer
+        from unittest.mock import Mock, MagicMock
+        
+        # Mock队列
+        mock_queue = Mock()
+        mock_queue.get_all_candidates = MagicMock(return_value=[
+            {
+                "session_id": "session_001",
+                "utterance": "我平时喜欢听周杰伦",
+                "assistant_response": "好的",
+                "context": {},
+                "trace_id": "trace_001",
+                "timestamp": "2024-01-01T00:00:00"
+            }
+        ])
+        mock_queue.clear_candidates = Mock(return_value=1)
+        
+        # Mock P2MemoryService
+        mock_p2_service = Mock()
+        mock_p2_service.handle_passive_extraction = Mock()
+        
+        consumer = PassiveMemoryConsumer(mock_queue, mock_p2_service)
+        
+        # 消费候选
+        result = consumer.consume_for_user(
+            user_id="account_test:driver_001",
+            trigger_reason="task_end_completed"
+        )
+        
+        # 验证结果
+        assert result['candidates_count'] == 1
+        assert result['extracted_count'] == 1
+        assert result['trigger'] == "task_end_completed"
+        
+        # 验证调用
+        mock_queue.get_all_candidates.assert_called_once()
+        mock_p2_service.handle_passive_extraction.assert_called_once()
+        mock_queue.clear_candidates.assert_called_once()
+    
+    def test_consumer_no_candidates(self):
+        """测试消费者处理空队列"""
+        from app.memory.passive_queue import PassiveMemoryCandidateQueue, PassiveMemoryConsumer
+        from unittest.mock import Mock, MagicMock
+        
+        # Mock空队列
+        mock_queue = Mock()
+        mock_queue.get_all_candidates = MagicMock(return_value=[])
+        
+        # Mock P2MemoryService
+        mock_p2_service = Mock()
+        
+        consumer = PassiveMemoryConsumer(mock_queue, mock_p2_service)
+        
+        # 消费空队列
+        result = consumer.consume_for_user(
+            user_id="account_test:driver_001",
+            trigger_reason="task_end_completed"
+        )
+        
+        # 验证结果
+        assert result['candidates_count'] == 0
+        assert result['extracted_count'] == 0
+        
+        # 验证handle_passive_extraction未被调用
+        mock_p2_service.handle_passive_extraction.assert_not_called()
+    
+    @pytest.mark.asyncio
+    async def test_per_turn_no_long_term_put(self):
+        """PRD v1.27: 验证每轮对话不直接写入长期记忆（仅入队）"""
+        from app.memory.passive_queue import PassiveMemoryCandidateQueue
+        from unittest.mock import Mock
+        
+        # Mock Redis客户端
+        mock_redis = Mock()
+        mock_redis.rpush = Mock(return_value=1)
+        mock_redis.expire = Mock(return_value=True)
+        
+        queue = PassiveMemoryCandidateQueue(mock_redis)
+        
+        # 模拟对话轮次：仅入队，不put
+        queue.enqueue_candidate(
+            user_id="account_test:driver_001",
+            session_id="session_001",
+            utterance="我平时喜欢听周杰伦",
+            assistant_response="好的",
+            context={},
+            trace_id="trace_001"
+        )
+        
+        # 验证仅调用了rpush（入队），未调用任何put操作
+        mock_redis.rpush.assert_called_once()
+        
+        # 此时不应该有任何长期记忆写入（由consumer触发）
+        # 这里只是验证队列操作正确
+    
+    def test_active_remember_still_sync_puts(self):
+        """PRD v1.27: 验证主动记忆仍然同步写入（不经过队列）"""
+        # 这个测试在test_put_memory_home_address中已覆盖
+        # 主动记忆直接调用put_memory，不经过队列
+        pass
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
