@@ -658,24 +658,17 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(execute_and_publish)
     
-<<<<<<< HEAD
-    # P2: 被动提取入持久化队列（进程重启不丢；关记忆则跳过）
-    try:
-        user_id = f"account_default:{session_info.driver_id}"
-        assistant_response = ""
-        if taskgraph.tasks:
-            for task in taskgraph.tasks:
-                for step in task.steps:
-                    if hasattr(step.action, 'text'):
-                        assistant_response += getattr(step.action, 'text', '')
-                    elif hasattr(step.action, 'response'):
-                        assistant_response += getattr(step.action, 'response', '') or ''
-        if app_state.p2_memory_service:
-            app_state.p2_memory_service.enqueue_passive_extraction(
-=======
-    # PRD v1.27: 被动记忆候选入队（仅入队，不立即提取）
+    # PRD v1.28: 被动记忆候选入队（仅入队到Redis，不立即提取）
+    # 被动提取仅由scheduled batch job触发（nightly/每N小时）
     async def enqueue_passive_candidate():
-        """入队被动记忆候选（不立即写入长期记忆）"""
+        """入队被动记忆候选（不立即写入长期记忆）
+        
+        PRD v1.28:
+        - 对话回合：仅入队到Redis（短TTL缓冲）
+        - 不触发Memory.put
+        - Batch job稍后扫描PG task records + 可选参考Redis队列
+        - Batch job执行: score≥0.7 → 10-class → Memory.put
+        """
         try:
             # 检测主动记忆意图时不入队（已同步put）
             if active_memory_content:
@@ -695,25 +688,19 @@ async def dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
                         if hasattr(step.action, 'text'):
                             assistant_response += getattr(step.action, 'text', '')
             
-            # 入队hot candidate（短TTL Redis缓冲）
+            # 入队hot candidate（短TTL Redis缓冲，供batch job可选参考）
             app_state.passive_queue.enqueue_candidate(
->>>>>>> 4120886 (实现PRD v1.27被动记忆触发cadence变更)
                 user_id=user_id,
                 session_id=session_info.session_id,
                 utterance=request.utterance,
                 assistant_response=assistant_response,
                 context=context.model_dump() if hasattr(context, 'model_dump') else {},
-                trace_id=trace_id,
+                trace_id=trace_id
             )
-<<<<<<< HEAD
-    except Exception as e:
-        print(f"[Agent] Passive enqueue error (non-blocking): {e}")
-=======
         except Exception as e:
             print(f"[Agent] Passive queue enqueue error (non-blocking): {e}")
     
     background_tasks.add_task(enqueue_passive_candidate)
->>>>>>> 4120886 (实现PRD v1.27被动记忆触发cadence变更)
     
     # 立即返回TaskGraph
     return DialogueResponse(
